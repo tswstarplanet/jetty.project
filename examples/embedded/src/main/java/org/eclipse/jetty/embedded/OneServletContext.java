@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,12 +18,10 @@
 
 package org.eclipse.jetty.embedded;
 
-import org.eclipse.jetty.server.Server;
-import org.eclipse.jetty.servlet.DefaultServlet;
-import org.eclipse.jetty.servlet.ListenerHolder;
-import org.eclipse.jetty.servlet.ServletContextHandler;
-
-import javax.servlet.DispatcherType;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.EnumSet;
 import javax.servlet.Filter;
 import javax.servlet.FilterChain;
 import javax.servlet.FilterConfig;
@@ -34,52 +32,79 @@ import javax.servlet.ServletRequest;
 import javax.servlet.ServletRequestEvent;
 import javax.servlet.ServletRequestListener;
 import javax.servlet.ServletResponse;
-import java.io.IOException;
-import java.util.EnumSet;
+import javax.servlet.http.HttpServletResponse;
+
+import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.servlet.DefaultServlet;
+import org.eclipse.jetty.servlet.ListenerHolder;
+import org.eclipse.jetty.servlet.ServletContextHandler;
+import org.eclipse.jetty.servlet.ServletHolder;
+import org.eclipse.jetty.util.resource.PathResource;
+import org.eclipse.jetty.util.resource.Resource;
+
+import static javax.servlet.DispatcherType.ASYNC;
+import static javax.servlet.DispatcherType.REQUEST;
 
 public class OneServletContext
 {
-    public static void main( String[] args ) throws Exception
+    public static Server createServer(int port, Resource baseResource)
     {
-        Server server = new Server(8080);
+        Server server = new Server(port);
 
-        ServletContextHandler context = new ServletContextHandler(
-                ServletContextHandler.SESSIONS);
+        ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
         context.setContextPath("/");
-        context.setResourceBase(System.getProperty("java.io.tmpdir"));
+        context.setBaseResource(baseResource);
         server.setHandler(context);
 
-        // Add dump servlet
-        context.addServlet(
-            context.addServlet(DumpServlet.class, "/dump/*"),
-            "*.dump");
+        // add hello servlet
         context.addServlet(HelloServlet.class, "/hello/*");
+
+        // Add dump servlet on multiple url-patterns
+        ServletHolder debugHolder = new ServletHolder("debug", DumpServlet.class);
+        context.addServlet(debugHolder, "/dump/*");
+        context.addServlet(debugHolder, "*.dump");
+
+        // add default servlet (for error handling and static resources)
         context.addServlet(DefaultServlet.class, "/");
 
-        context.addFilter(TestFilter.class,"/*", EnumSet.of(DispatcherType.REQUEST));
-        context.addFilter(TestFilter.class,"/test", EnumSet.of(DispatcherType.REQUEST,DispatcherType.ASYNC));
-        context.addFilter(TestFilter.class,"*.test", EnumSet.of(DispatcherType.REQUEST,DispatcherType.INCLUDE,DispatcherType.FORWARD));
+        // sprinkle in a few filters to demonstrate behaviors
+        context.addFilter(TestFilter.class, "/test/*", EnumSet.of(REQUEST));
+        context.addFilter(TestFilter.class, "*.test", EnumSet.of(REQUEST, ASYNC));
 
+        // and a few listeners to show other ways of working with servlets
         context.getServletHandler().addListener(new ListenerHolder(InitListener.class));
         context.getServletHandler().addListener(new ListenerHolder(RequestListener.class));
+
+        return server;
+    }
+
+    public static void main(String[] args) throws Exception
+    {
+        int port = ExampleUtil.getPort(args, "jetty.http.port", 8080);
+        Path tempDir = Paths.get(System.getProperty("java.io.tmpdir"));
+
+        Server server = createServer(port, new PathResource(tempDir));
 
         server.start();
         server.dumpStdErr();
         server.join();
     }
 
-
     public static class TestFilter implements Filter
     {
         @Override
-        public void init(FilterConfig filterConfig) throws ServletException
+        public void init(FilterConfig filterConfig)
         {
-
         }
 
         @Override
         public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException
         {
+            if (response instanceof HttpServletResponse)
+            {
+                HttpServletResponse httpServletResponse = (HttpServletResponse)response;
+                httpServletResponse.setHeader("X-TestFilter", "true");
+            }
             chain.doFilter(request, response);
         }
 
@@ -95,6 +120,7 @@ public class OneServletContext
         @Override
         public void contextInitialized(ServletContextEvent sce)
         {
+            sce.getServletContext().setAttribute("X-Init", "true");
         }
 
         @Override
@@ -103,19 +129,17 @@ public class OneServletContext
         }
     }
 
-
     public static class RequestListener implements ServletRequestListener
     {
         @Override
-        public void requestDestroyed(ServletRequestEvent sre)
+        public void requestInitialized(ServletRequestEvent sre)
         {
-
+            sre.getServletRequest().setAttribute("X-ReqListener", "true");
         }
 
         @Override
-        public void requestInitialized(ServletRequestEvent sre)
+        public void requestDestroyed(ServletRequestEvent sre)
         {
-
         }
     }
 }

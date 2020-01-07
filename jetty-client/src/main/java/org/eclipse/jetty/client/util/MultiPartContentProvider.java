@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -38,6 +38,7 @@ import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.io.RuntimeIOException;
 import org.eclipse.jetty.util.Callback;
+import org.eclipse.jetty.util.IO;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
 
@@ -115,10 +116,10 @@ public class MultiPartContentProvider extends AbstractTypedContentProvider imple
      * {@code content} as part content.</p>
      * <p>The {@code Content-Type} of this part will be obtained from:</p>
      * <ul>
-     *     <li>the {@code Content-Type} header in the {@code fields} parameter; otherwise</li>
-     *     <li>the {@link org.eclipse.jetty.client.api.ContentProvider.Typed#getContentType()} method if the {@code content} parameter
-     *     implements {@link org.eclipse.jetty.client.api.ContentProvider.Typed}; otherwise</li>
-     *     <li>"text/plain"</li>
+     * <li>the {@code Content-Type} header in the {@code fields} parameter; otherwise</li>
+     * <li>the {@link org.eclipse.jetty.client.api.ContentProvider.Typed#getContentType()} method if the {@code content} parameter
+     * implements {@link org.eclipse.jetty.client.api.ContentProvider.Typed}; otherwise</li>
+     * <li>"text/plain"</li>
      * </ul>
      *
      * @param name the part name
@@ -135,10 +136,10 @@ public class MultiPartContentProvider extends AbstractTypedContentProvider imple
      * {@code fileName} as file name, and the given {@code content} as part content.</p>
      * <p>The {@code Content-Type} of this part will be obtained from:</p>
      * <ul>
-     *     <li>the {@code Content-Type} header in the {@code fields} parameter; otherwise</li>
-     *     <li>the {@link org.eclipse.jetty.client.api.ContentProvider.Typed#getContentType()} method if the {@code content} parameter
-     *     implements {@link org.eclipse.jetty.client.api.ContentProvider.Typed}; otherwise</li>
-     *     <li>"application/octet-stream"</li>
+     * <li>the {@code Content-Type} header in the {@code fields} parameter; otherwise</li>
+     * <li>the {@link org.eclipse.jetty.client.api.ContentProvider.Typed#getContentType()} method if the {@code content} parameter
+     * implements {@link org.eclipse.jetty.client.api.ContentProvider.Typed}; otherwise</li>
+     * <li>"application/octet-stream"</li>
      * </ul>
      *
      * @param name the part name
@@ -289,12 +290,12 @@ public class MultiPartContentProvider extends AbstractTypedContentProvider imple
         public String toString()
         {
             return String.format("%s@%x[name=%s,fileName=%s,length=%d,headers=%s]",
-                    getClass().getSimpleName(),
-                    hashCode(),
-                    name,
-                    fileName,
-                    content.getLength(),
-                    fields);
+                getClass().getSimpleName(),
+                hashCode(),
+                name,
+                fileName,
+                content.getLength(),
+                fields);
         }
     }
 
@@ -345,10 +346,16 @@ public class MultiPartContentProvider extends AbstractTypedContentProvider imple
                         if (iterator.hasNext())
                             return iterator.next();
                         ++index;
-                        if (index == parts.size())
-                            state = State.LAST_BOUNDARY;
-                        else
+                        if (index < parts.size())
+                        {
                             state = State.MIDDLE_BOUNDARY;
+                            if (iterator instanceof Closeable)
+                                IO.close((Closeable)iterator);
+                        }
+                        else
+                        {
+                            state = State.LAST_BOUNDARY;
+                        }
                         break;
                     }
                     case MIDDLE_BOUNDARY:
@@ -380,14 +387,14 @@ public class MultiPartContentProvider extends AbstractTypedContentProvider imple
         @Override
         public void succeeded()
         {
-            if (iterator instanceof Callback)
+            if (state == State.CONTENT && iterator instanceof Callback)
                 ((Callback)iterator).succeeded();
         }
 
         @Override
         public void failed(Throwable x)
         {
-            if (iterator instanceof Callback)
+            if (state == State.CONTENT && iterator instanceof Callback)
                 ((Callback)iterator).failed(x);
         }
 

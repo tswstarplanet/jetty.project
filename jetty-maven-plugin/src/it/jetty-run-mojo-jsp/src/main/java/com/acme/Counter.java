@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -21,7 +21,7 @@ package com.acme;
 @SuppressWarnings("serial")
 public class Counter implements java.io.Serializable
 {
-    int counter=0;
+    int counter = 0;
     String last;
 
     public int getCount()
@@ -30,11 +30,13 @@ public class Counter implements java.io.Serializable
         return counter;
     }
 
-    public void setLast(String uri) {
-        last=uri;
+    public void setLast(String uri)
+    {
+        last = uri;
     }
 
-    public String getLast() {
+    public String getLast()
+    {
         return last;
     }
 }

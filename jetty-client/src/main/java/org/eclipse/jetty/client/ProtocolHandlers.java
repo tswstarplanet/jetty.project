@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -79,7 +79,7 @@ public class ProtocolHandlers implements Dumpable
      * {@link ProtocolHandler#accept(Request, Response) accepts}
      * the given request and response.</p>
      *
-     * @param request  the request to accept
+     * @param request the request to accept
      * @param response the response to accept
      * @return the protocol handler that accepted the request and response,
      * or null if none of the protocol handlers accepted the request and response

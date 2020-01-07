@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,9 +18,6 @@
 
 package org.eclipse.jetty.http.client;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.nio.ByteBuffer;
@@ -34,7 +31,6 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.IntStream;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -68,6 +64,9 @@ import org.hamcrest.Matchers;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ArgumentsSource;
 
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 public class HttpClientLoadTest extends AbstractTest<HttpClientLoadTest.LoadTransportScenario>
 {
     private final Logger logger = Log.getLogger(HttpClientLoadTest.class);
@@ -96,12 +95,16 @@ public class HttpClientLoadTest extends AbstractTest<HttpClientLoadTest.LoadTran
         int runs = 1;
         int iterations = 500;
         for (int i = 0; i < runs; ++i)
+        {
             run(iterations);
+        }
 
         // Re-run after warmup
         iterations = 5_000;
         for (int i = 0; i < runs; ++i)
+        {
             run(iterations);
+        }
 
         System.gc();
 
@@ -138,12 +141,11 @@ public class HttpClientLoadTest extends AbstractTest<HttpClientLoadTest.LoadTran
             client.setMaxRequestsQueuedPerDestination(1024 * 1024);
         });
 
-
         int runs = 1;
         int iterations = 256;
         IntStream.range(0, 16).parallel().forEach(i ->
-                IntStream.range(0, runs).forEach(j ->
-                        run(iterations)));
+            IntStream.range(0, runs).forEach(j ->
+                run(iterations)));
     }
 
     private void run(int iterations)
@@ -158,8 +160,8 @@ public class HttpClientLoadTest extends AbstractTest<HttpClientLoadTest.LoadTran
         Scheduler.Task task = scenario.client.getScheduler().schedule(() ->
         {
             logger.warn("Interrupting test, it is taking too long{}{}{}{}",
-                    System.lineSeparator(), scenario.server.dump(),
-                    System.lineSeparator(), scenario.client.dump());
+                System.lineSeparator(), scenario.server.dump(),
+                System.lineSeparator(), scenario.client.dump());
             testThread.interrupt();
         }, iterations * factor, TimeUnit.MILLISECONDS);
 
@@ -176,9 +178,11 @@ public class HttpClientLoadTest extends AbstractTest<HttpClientLoadTest.LoadTran
         logger.info("{} requests in {} ms, {} req/s", iterations, elapsed, elapsed > 0 ? iterations * 1000 / elapsed : -1);
 
         for (String failure : failures)
+        {
             logger.info("FAILED: {}", failure);
+        }
 
-        assertTrue(failures.isEmpty(),failures.toString());
+        assertTrue(failures.isEmpty(), failures.toString());
     }
 
     private void test(final CountDownLatch latch, final List<String> failures)
@@ -213,9 +217,9 @@ public class HttpClientLoadTest extends AbstractTest<HttpClientLoadTest.LoadTran
     {
         long requestId = requestCount.incrementAndGet();
         Request request = scenario.client.newRequest(host, scenario.getNetworkConnectorLocalPortInt().orElse(0))
-                .scheme(scheme)
-                .path("/" + requestId)
-                .method(method);
+            .scheme(scheme)
+            .path("/" + requestId)
+            .method(method);
 
         if (clientClose)
             request.header(HttpHeader.CONNECTION, "close");
@@ -287,8 +291,8 @@ public class HttpClientLoadTest extends AbstractTest<HttpClientLoadTest.LoadTran
         if (!await(requestLatch, 5, TimeUnit.SECONDS))
         {
             logger.warn("Request {} took too long{}{}{}{}", requestId,
-                    System.lineSeparator(), scenario.server.dump(),
-                    System.lineSeparator(), scenario.client.dump());
+                System.lineSeparator(), scenario.server.dump(),
+                System.lineSeparator(), scenario.client.dump());
         }
     }
 
@@ -364,20 +368,18 @@ public class HttpClientLoadTest extends AbstractTest<HttpClientLoadTest.LoadTran
         }
 
         @Override
-        public Connector newServerConnector( Server server)
+        public Connector newServerConnector(Server server)
         {
-            if (transport == Transport.UNIX_SOCKET)
-            {
-                UnixSocketConnector
-                        unixSocketConnector = new UnixSocketConnector( server, provideServerConnectionFactory( transport ));
-                unixSocketConnector.setUnixSocket( sockFile.toString() );
-                return unixSocketConnector;
-            }
-            int cores = ProcessorUtils.availableProcessors();
+            int selectors = Math.min(1, ProcessorUtils.availableProcessors() / 2);
             ByteBufferPool byteBufferPool = new ArrayByteBufferPool();
             byteBufferPool = new LeakTrackingByteBufferPool(byteBufferPool);
-            return new ServerConnector(server, null, null, byteBufferPool,
-                    1, Math.min(1, cores / 2), provideServerConnectionFactory(transport));
+            if (transport == Transport.UNIX_SOCKET)
+            {
+                UnixSocketConnector unixSocketConnector = new UnixSocketConnector(server, null, null, byteBufferPool, selectors, provideServerConnectionFactory(transport));
+                unixSocketConnector.setUnixSocket(sockFile.toString());
+                return unixSocketConnector;
+            }
+            return new ServerConnector(server, null, null, byteBufferPool, 1, selectors, provideServerConnectionFactory(transport));
         }
 
         @Override
@@ -416,7 +418,7 @@ public class HttpClientLoadTest extends AbstractTest<HttpClientLoadTest.LoadTran
                 }
                 case UNIX_SOCKET:
                 {
-                    HttpClientTransportOverUnixSockets clientTransport = new HttpClientTransportOverUnixSockets( sockFile.toString() );
+                    HttpClientTransportOverUnixSockets clientTransport = new HttpClientTransportOverUnixSockets(sockFile.toString());
                     clientTransport.setConnectionPoolFactory(destination -> new LeakTrackingConnectionPool(destination, client.getMaxConnectionsPerDestination(), destination)
                     {
                         @Override

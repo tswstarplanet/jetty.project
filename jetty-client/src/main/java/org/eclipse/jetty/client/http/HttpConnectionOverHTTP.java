@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -93,7 +93,6 @@ public class HttpConnectionOverHTTP extends AbstractConnection implements Connec
         return bytesOut.longValue();
     }
 
-
     protected void addBytesOut(long bytesOut)
     {
         this.bytesOut.add(bytesOut);
@@ -140,26 +139,21 @@ public class HttpConnectionOverHTTP extends AbstractConnection implements Connec
     public boolean onIdleExpired()
     {
         long idleTimeout = getEndPoint().getIdleTimeout();
-        boolean close = delegate.onIdleTimeout(idleTimeout);
+        boolean close = onIdleTimeout(idleTimeout);
         if (close)
             close(new TimeoutException("Idle timeout " + idleTimeout + " ms"));
         return false;
     }
 
+    protected boolean onIdleTimeout(long idleTimeout)
+    {
+        return delegate.onIdleTimeout(idleTimeout);
+    }
+
     @Override
     public void onFillable()
     {
-        HttpExchange exchange = channel.getHttpExchange();
-        if (exchange != null)
-        {
-            channel.receive();
-        }
-        else
-        {
-            // If there is no exchange, then could be either a remote close,
-            // or garbage bytes; in both cases we close the connection
-            close();
-        }
+        channel.receive();
     }
 
     @Override
@@ -209,9 +203,7 @@ public class HttpConnectionOverHTTP extends AbstractConnection implements Connec
     {
         if (!closed.get())
             return false;
-        if (sweeps.incrementAndGet() < 4)
-            return false;
-        return true;
+        return sweeps.incrementAndGet() >= 4;
     }
 
     public void remove()

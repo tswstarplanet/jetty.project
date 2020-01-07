@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -22,8 +22,10 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Executor;
-
+import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLException;
+import javax.net.ssl.SSLPeerUnverifiedException;
 
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.ClientConnectionFactory;
@@ -45,7 +47,7 @@ public class SslClientConnectionFactory implements ClientConnectionFactory
     private final ClientConnectionFactory connectionFactory;
     private boolean _directBuffersForEncryption = true;
     private boolean _directBuffersForDecryption = true;
-    private boolean allowMissingCloseMessage = true;
+    private boolean _requireCloseMessage;
 
     public SslClientConnectionFactory(SslContextFactory sslContextFactory, ByteBufferPool byteBufferPool, Executor executor, ClientConnectionFactory connectionFactory)
     {
@@ -75,14 +77,42 @@ public class SslClientConnectionFactory implements ClientConnectionFactory
         return _directBuffersForEncryption;
     }
 
+    /**
+     * @return whether is not required that peers send the TLS {@code close_notify} message
+     * @deprecated use {@link #isRequireCloseMessage()} instead
+     */
+    @Deprecated
     public boolean isAllowMissingCloseMessage()
     {
-        return allowMissingCloseMessage;
+        return !isRequireCloseMessage();
     }
 
+    /**
+     * @param allowMissingCloseMessage whether is not required that peers send the TLS {@code close_notify} message
+     * @deprecated use {@link #setRequireCloseMessage(boolean)} instead
+     */
+    @Deprecated
     public void setAllowMissingCloseMessage(boolean allowMissingCloseMessage)
     {
-        this.allowMissingCloseMessage = allowMissingCloseMessage;
+        setRequireCloseMessage(!allowMissingCloseMessage);
+    }
+
+    /**
+     * @return whether peers must send the TLS {@code close_notify} message
+     * @see SslConnection#isRequireCloseMessage()
+     */
+    public boolean isRequireCloseMessage()
+    {
+        return _requireCloseMessage;
+    }
+
+    /**
+     * @param requireCloseMessage whether peers must send the TLS {@code close_notify} message
+     * @see SslConnection#setRequireCloseMessage(boolean)
+     */
+    public void setRequireCloseMessage(boolean requireCloseMessage)
+    {
+        _requireCloseMessage = requireCloseMessage;
     }
 
     @Override
@@ -95,11 +125,11 @@ public class SslClientConnectionFactory implements ClientConnectionFactory
         context.put(SSL_ENGINE_CONTEXT_KEY, engine);
 
         SslConnection sslConnection = newSslConnection(byteBufferPool, executor, endPoint, engine);
-        endPoint.setConnection(sslConnection);
 
         EndPoint appEndPoint = sslConnection.getDecryptedEndPoint();
         appEndPoint.setConnection(connectionFactory.newConnection(appEndPoint, context));
 
+        sslConnection.addHandshakeListener(new HTTPSHandshakeListener(context));
         customize(sslConnection, context);
 
         return sslConnection;
@@ -118,10 +148,43 @@ public class SslClientConnectionFactory implements ClientConnectionFactory
             SslConnection sslConnection = (SslConnection)connection;
             sslConnection.setRenegotiationAllowed(sslContextFactory.isRenegotiationAllowed());
             sslConnection.setRenegotiationLimit(sslContextFactory.getRenegotiationLimit());
-            sslConnection.setAllowMissingCloseMessage(isAllowMissingCloseMessage());
+            sslConnection.setRequireCloseMessage(isRequireCloseMessage());
             ContainerLifeCycle connector = (ContainerLifeCycle)context.get(ClientConnectionFactory.CONNECTOR_CONTEXT_KEY);
             connector.getBeans(SslHandshakeListener.class).forEach(sslConnection::addHandshakeListener);
         }
         return ClientConnectionFactory.super.customize(connection, context);
+    }
+
+    private class HTTPSHandshakeListener implements SslHandshakeListener
+    {
+        private final Map<String, Object> context;
+
+        private HTTPSHandshakeListener(Map<String, Object> context)
+        {
+            this.context = context;
+        }
+
+        @Override
+        public void handshakeSucceeded(Event event) throws SSLException
+        {
+            HostnameVerifier verifier = sslContextFactory.getHostnameVerifier();
+            if (verifier != null)
+            {
+                String host = (String)context.get(SSL_PEER_HOST_CONTEXT_KEY);
+                try
+                {
+                    if (!verifier.verify(host, event.getSSLEngine().getSession()))
+                        throw new SSLPeerUnverifiedException("Host name verification failed for host: " + host);
+                }
+                catch (SSLException x)
+                {
+                    throw x;
+                }
+                catch (Throwable x)
+                {
+                    throw (SSLException)new SSLPeerUnverifiedException("Host name verification failed for host: " + host).initCause(x);
+                }
+            }
+        }
     }
 }

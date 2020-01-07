@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,10 +18,6 @@
 
 package org.eclipse.jetty.http2.client;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.WritePendingException;
@@ -30,9 +26,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-
-import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -50,7 +45,10 @@ import org.eclipse.jetty.http2.api.server.ServerSessionListener;
 import org.eclipse.jetty.http2.frames.DataFrame;
 import org.eclipse.jetty.http2.frames.GoAwayFrame;
 import org.eclipse.jetty.http2.frames.HeadersFrame;
+import org.eclipse.jetty.http2.frames.ResetFrame;
 import org.eclipse.jetty.http2.frames.SettingsFrame;
+import org.eclipse.jetty.http2.hpack.HpackException;
+import org.eclipse.jetty.http2.parser.RateControl;
 import org.eclipse.jetty.http2.parser.ServerParser;
 import org.eclipse.jetty.http2.server.RawHTTP2ServerConnectionFactory;
 import org.eclipse.jetty.server.Connector;
@@ -61,8 +59,15 @@ import org.eclipse.jetty.util.FuturePromise;
 import org.eclipse.jetty.util.IO;
 import org.eclipse.jetty.util.Jetty;
 import org.eclipse.jetty.util.Promise;
-
 import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.instanceOf;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class HTTP2Test extends AbstractTest
 {
@@ -154,7 +159,7 @@ public class HTTP2Test extends AbstractTest
         start(new HttpServlet()
         {
             @Override
-            protected void service(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException
+            protected void service(HttpServletRequest req, HttpServletResponse resp) throws IOException
             {
                 resp.getOutputStream().write(content);
             }
@@ -202,7 +207,7 @@ public class HTTP2Test extends AbstractTest
         start(new EmptyHttpServlet()
         {
             @Override
-            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 IO.copy(request.getInputStream(), response.getOutputStream());
             }
@@ -246,7 +251,7 @@ public class HTTP2Test extends AbstractTest
         start(new HttpServlet()
         {
             @Override
-            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws IOException
             {
                 int download = request.getIntHeader(downloadBytes);
                 byte[] content = new byte[download];
@@ -289,7 +294,7 @@ public class HTTP2Test extends AbstractTest
         start(new HttpServlet()
         {
             @Override
-            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            protected void service(HttpServletRequest request, HttpServletResponse response)
             {
                 response.setStatus(status);
             }
@@ -324,7 +329,7 @@ public class HTTP2Test extends AbstractTest
         start(new HttpServlet()
         {
             @Override
-            protected void service(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException
+            protected void service(HttpServletRequest request, HttpServletResponse response)
             {
                 assertEquals(host, request.getServerName());
                 assertEquals(port, request.getServerPort());
@@ -749,7 +754,7 @@ public class HTTP2Test extends AbstractTest
         RawHTTP2ServerConnectionFactory connectionFactory = new RawHTTP2ServerConnectionFactory(new HttpConfiguration(), serverListener)
         {
             @Override
-            protected ServerParser newServerParser(Connector connector, ServerParser.Listener listener)
+            protected ServerParser newServerParser(Connector connector, ServerParser.Listener listener, RateControl rateControl)
             {
                 return super.newServerParser(connector, new ServerParser.Listener.Wrapper(listener)
                 {
@@ -759,7 +764,7 @@ public class HTTP2Test extends AbstractTest
                         super.onGoAway(frame);
                         goAwayLatch.countDown();
                     }
-                });
+                }, rateControl);
             }
         };
         prepareServer(connectionFactory);
@@ -792,6 +797,100 @@ public class HTTP2Test extends AbstractTest
         assertTrue(responseLatch.await(5, TimeUnit.SECONDS));
         assertTrue(closeLatch.await(5, TimeUnit.SECONDS));
         assertTrue(goAwayLatch.await(5, TimeUnit.SECONDS));
+    }
+
+    @Test
+    public void testClientInvalidHeader() throws Exception
+    {
+        start(new EmptyHttpServlet());
+
+        // A bad header in the request should fail on the client.
+        Session session = newClient(new Session.Listener.Adapter());
+        HttpFields requestFields = new HttpFields();
+        requestFields.put(":custom", "special");
+        MetaData.Request metaData = newRequest("GET", requestFields);
+        HeadersFrame request = new HeadersFrame(metaData, null, true);
+        FuturePromise<Stream> promise = new FuturePromise<>();
+        session.newStream(request, promise, new Stream.Listener.Adapter());
+        ExecutionException x = assertThrows(ExecutionException.class, () -> promise.get(5, TimeUnit.SECONDS));
+        assertThat(x.getCause(), instanceOf(HpackException.StreamException.class));
+    }
+
+    @Test
+    public void testServerInvalidHeader() throws Exception
+    {
+        start(new EmptyHttpServlet()
+        {
+            @Override
+            protected void service(HttpServletRequest request, HttpServletResponse response)
+            {
+                response.setHeader(":custom", "special");
+            }
+        });
+
+        // Good request with bad header in the response.
+        Session session = newClient(new Session.Listener.Adapter());
+        MetaData.Request metaData = newRequest("GET", new HttpFields());
+        HeadersFrame request = new HeadersFrame(metaData, null, true);
+        FuturePromise<Stream> promise = new FuturePromise<>();
+        CountDownLatch resetLatch = new CountDownLatch(1);
+        session.newStream(request, promise, new Stream.Listener.Adapter()
+        {
+            @Override
+            public void onReset(Stream stream, ResetFrame frame)
+            {
+                resetLatch.countDown();
+            }
+        });
+        Stream stream = promise.get(5, TimeUnit.SECONDS);
+        assertNotNull(stream);
+
+        assertTrue(resetLatch.await(5, TimeUnit.SECONDS));
+    }
+
+    @Test
+    public void testServerInvalidHeaderFlushed() throws Exception
+    {
+        CountDownLatch serverFailure = new CountDownLatch(1);
+        start(new EmptyHttpServlet()
+        {
+            @Override
+            protected void service(HttpServletRequest request, HttpServletResponse response) throws IOException
+            {
+                response.setHeader(":custom", "special");
+                try
+                {
+                    response.flushBuffer();
+                }
+                catch (IOException x)
+                {
+                    assertThat(x.getCause(), instanceOf(HpackException.StreamException.class));
+                    serverFailure.countDown();
+                    throw x;
+                }
+            }
+        });
+
+        // Good request with bad header in the response.
+        Session session = newClient(new Session.Listener.Adapter());
+        MetaData.Request metaData = newRequest("GET", "/flush", new HttpFields());
+        HeadersFrame request = new HeadersFrame(metaData, null, true);
+        FuturePromise<Stream> promise = new FuturePromise<>();
+        CountDownLatch resetLatch = new CountDownLatch(1);
+        session.newStream(request, promise, new Stream.Listener.Adapter()
+        {
+            @Override
+            public void onReset(Stream stream, ResetFrame frame)
+            {
+                // Cannot receive a 500 because we force the flush on the server, so
+                // the response is committed even if the server was not able to write it.
+                resetLatch.countDown();
+            }
+        });
+        Stream stream = promise.get(5, TimeUnit.SECONDS);
+        assertNotNull(stream);
+        assertTrue(serverFailure.await(5, TimeUnit.SECONDS));
+        assertTrue(resetLatch.await(5, TimeUnit.SECONDS));
     }
 
     private static void sleep(long time)

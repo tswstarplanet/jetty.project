@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,9 +18,6 @@
 
 package org.eclipse.jetty.server.ssl;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -28,7 +25,6 @@ import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-
 import javax.net.ssl.SSLContext;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
@@ -46,6 +42,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnJre;
 import org.junit.jupiter.api.condition.JRE;
 
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 // Only in JDK 11 is possible to use SSLSocket.shutdownOutput().
 @DisabledOnJre({JRE.JAVA_8, JRE.JAVA_9, JRE.JAVA_10})
 public class SSLReadEOFAfterResponseTest
@@ -54,7 +53,7 @@ public class SSLReadEOFAfterResponseTest
     public void testReadEOFAfterResponse() throws Exception
     {
         File keystore = MavenTestingUtils.getTestResourceFile("keystore");
-        SslContextFactory sslContextFactory = new SslContextFactory();
+        SslContextFactory sslContextFactory = new SslContextFactory.Server();
         sslContextFactory.setKeyStoreResource(Resource.newResource(keystore));
         sslContextFactory.setKeyStorePassword("storepwd");
         sslContextFactory.setKeyManagerPassword("keypwd");
@@ -67,10 +66,10 @@ public class SSLReadEOFAfterResponseTest
 
         String content = "the quick brown fox jumped over the lazy dog";
         byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
-        server.setHandler(new AbstractHandler.ErrorDispatchHandler()
+        server.setHandler(new AbstractHandler()
         {
             @Override
-            protected void doNonErrorHandle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException
+            public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException
             {
                 // First: read the whole content.
                 InputStream input = request.getInputStream();
@@ -106,8 +105,8 @@ public class SSLReadEOFAfterResponseTest
                 client.setSoTimeout(5 * idleTimeout);
 
                 OutputStream output = client.getOutputStream();
-                String request = "" +
-                        "POST / HTTP/1.1\r\n" +
+                String request =
+                    "POST / HTTP/1.1\r\n" +
                         "Host: localhost\r\n" +
                         "Content-Length: " + content.length() + "\r\n" +
                         "\r\n";
@@ -130,8 +129,9 @@ public class SSLReadEOFAfterResponseTest
                         break;
                 }
                 for (byte b : bytes)
+                {
                     assertEquals(b, input.read());
-
+                }
 
                 // Shutdown the output so the server reads the TLS close_notify.
                 client.shutdownOutput();

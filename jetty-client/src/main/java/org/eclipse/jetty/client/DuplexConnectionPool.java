@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -245,8 +245,8 @@ public class DuplexConnectionPool extends AbstractConnectionPool implements Swee
         lock();
         try
         {
-            active = new DumpableCollection("active",new ArrayList<>(activeConnections));
-            idle = new DumpableCollection("idle",new ArrayList<>(idleConnections));
+            active = new DumpableCollection("active", new ArrayList<>(activeConnections));
+            idle = new DumpableCollection("idle", new ArrayList<>(idleConnections));
         }
         finally
         {
@@ -268,8 +268,8 @@ public class DuplexConnectionPool extends AbstractConnectionPool implements Swee
         try
         {
             toSweep = activeConnections.stream()
-                    .filter(connection -> connection instanceof Sweeper.Sweepable)
-                    .collect(Collectors.toList());
+                .filter(connection -> connection instanceof Sweeper.Sweepable)
+                .collect(Collectors.toList());
         }
         finally
         {
@@ -282,11 +282,11 @@ public class DuplexConnectionPool extends AbstractConnectionPool implements Swee
             {
                 boolean removed = remove(connection, true);
                 LOG.warn("Connection swept: {}{}{} from active connections{}{}",
-                        connection,
-                        System.lineSeparator(),
-                        removed ? "Removed" : "Not removed",
-                        System.lineSeparator(),
-                        dump());
+                    connection,
+                    System.lineSeparator(),
+                    removed ? "Removed" : "Not removed",
+                    System.lineSeparator(),
+                    dump());
             }
         }
 
@@ -309,12 +309,13 @@ public class DuplexConnectionPool extends AbstractConnectionPool implements Swee
             unlock();
         }
 
-        return String.format("%s@%x[c=%d/%d,a=%d,i=%d]",
-                getClass().getSimpleName(),
-                hashCode(),
-                getConnectionCount(),
-                getMaxConnectionCount(),
-                activeSize,
-                idleSize);
+        return String.format("%s@%x[c=%d/%d/%d,a=%d,i=%d]",
+            getClass().getSimpleName(),
+            hashCode(),
+            getPendingConnectionCount(),
+            getConnectionCount(),
+            getMaxConnectionCount(),
+            activeSize,
+            idleSize);
     }
 }

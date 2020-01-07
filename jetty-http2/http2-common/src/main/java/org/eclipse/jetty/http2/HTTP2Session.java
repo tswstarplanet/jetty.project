@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -49,6 +49,7 @@ import org.eclipse.jetty.http2.frames.ResetFrame;
 import org.eclipse.jetty.http2.frames.SettingsFrame;
 import org.eclipse.jetty.http2.frames.WindowUpdateFrame;
 import org.eclipse.jetty.http2.generator.Generator;
+import org.eclipse.jetty.http2.hpack.HpackException;
 import org.eclipse.jetty.http2.parser.Parser;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.EndPoint;
@@ -57,8 +58,8 @@ import org.eclipse.jetty.util.AtomicBiInteger;
 import org.eclipse.jetty.util.Atomics;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.CountingCallback;
+import org.eclipse.jetty.util.MathUtils;
 import org.eclipse.jetty.util.Promise;
-import org.eclipse.jetty.util.Retainable;
 import org.eclipse.jetty.util.annotation.ManagedAttribute;
 import org.eclipse.jetty.util.annotation.ManagedObject;
 import org.eclipse.jetty.util.component.ContainerLifeCycle;
@@ -460,47 +461,33 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         int windowDelta = frame.getWindowDelta();
         if (streamId > 0)
         {
-            if (windowDelta == 0)
+            IStream stream = getStream(streamId);
+            if (stream != null)
             {
-                reset(new ResetFrame(streamId, ErrorCode.PROTOCOL_ERROR.code), Callback.NOOP);
-            }
-            else
-            {
-                IStream stream = getStream(streamId);
-                if (stream != null)
+                int streamSendWindow = stream.updateSendWindow(0);
+                if (MathUtils.sumOverflows(streamSendWindow, windowDelta))
                 {
-                    int streamSendWindow = stream.updateSendWindow(0);
-                    if (sumOverflows(streamSendWindow, windowDelta))
-                    {
-                        reset(new ResetFrame(streamId, ErrorCode.FLOW_CONTROL_ERROR.code), Callback.NOOP);
-                    }
-                    else
-                    {
-                        stream.process(frame, Callback.NOOP);
-                        onWindowUpdate(stream, frame);
-                    }
+                    reset(new ResetFrame(streamId, ErrorCode.FLOW_CONTROL_ERROR.code), Callback.NOOP);
                 }
                 else
                 {
-                    if (!isRemoteStreamClosed(streamId))
-                        onConnectionFailure(ErrorCode.PROTOCOL_ERROR.code, "unexpected_window_update_frame");
+                    stream.process(frame, Callback.NOOP);
+                    onWindowUpdate(stream, frame);
                 }
+            }
+            else
+            {
+                if (!isRemoteStreamClosed(streamId))
+                    onConnectionFailure(ErrorCode.PROTOCOL_ERROR.code, "unexpected_window_update_frame");
             }
         }
         else
         {
-            if (windowDelta == 0)
-            {
-                onConnectionFailure(ErrorCode.PROTOCOL_ERROR.code, "invalid_window_update_frame");
-            }
+            int sessionSendWindow = updateSendWindow(0);
+            if (MathUtils.sumOverflows(sessionSendWindow, windowDelta))
+                onConnectionFailure(ErrorCode.FLOW_CONTROL_ERROR.code, "invalid_flow_control_window");
             else
-            {
-                int sessionSendWindow = updateSendWindow(0);
-                if (sumOverflows(sessionSendWindow, windowDelta))
-                    onConnectionFailure(ErrorCode.FLOW_CONTROL_ERROR.code, "invalid_flow_control_window");
-                else
-                    onWindowUpdate(null, frame);
-            }
+                onWindowUpdate(null, frame);
         }
     }
 
@@ -513,19 +500,6 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
             stream.process(new FailureFrame(error, reason), callback);
         else
             callback.succeeded();
-    }
-
-    private boolean sumOverflows(int a, int b)
-    {
-        try
-        {
-            Math.addExact(a, b);
-            return false;
-        }
-        catch (ArithmeticException x)
-        {
-            return true;
-        }
     }
 
     @Override
@@ -555,7 +529,7 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
                     streamId = localStreamIds.getAndAdd(2);
                     PriorityFrame priority = frame.getPriority();
                     priority = priority == null ? null : new PriorityFrame(streamId, priority.getParentStreamId(),
-                            priority.getWeight(), priority.isExclusive());
+                        priority.getWeight(), priority.isExclusive());
                     frame = new HeadersFrame(streamId, frame.getMetaData(), priority, frame.isEndStream());
                 }
                 IStream stream = createLocalStream(streamId);
@@ -583,7 +557,7 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         {
             streamId = localStreamIds.getAndAdd(2);
             frame = new PriorityFrame(streamId, frame.getParentStreamId(),
-                    frame.getWeight(), frame.isExclusive());
+                frame.getWeight(), frame.isExclusive());
         }
         control(stream, callback, frame);
         return streamId;
@@ -654,8 +628,8 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
      * performing their actions.</li>
      * </ul>
      *
-     * @param error    the error code
-     * @param reason   the reason
+     * @param error the error code
+     * @param reason the reason
      * @param callback the callback to invoke when the operation is complete
      * @see #onGoAway(GoAwayFrame)
      * @see #onShutdown()
@@ -731,7 +705,9 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
             callback = new CountingCallback(callback, 1 + length);
             frame(new ControlEntry(frame, stream, callback), false);
             for (int i = 1; i <= length; ++i)
+            {
                 frame(new ControlEntry(frames[i - 1], stream, callback), i == length);
+            }
         }
     }
 
@@ -1062,7 +1038,9 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
                     {
                         flusher.terminate(cause);
                         for (IStream stream : streams.values())
+                        {
                             stream.close();
+                        }
                         streams.clear();
                         disconnect();
                         return;
@@ -1214,15 +1192,15 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
     public String toString()
     {
         return String.format("%s@%x{l:%s <-> r:%s,sendWindow=%s,recvWindow=%s,streams=%d,%s,%s}",
-                getClass().getSimpleName(),
-                hashCode(),
-                getEndPoint().getLocalAddress(),
-                getEndPoint().getRemoteAddress(),
-                sendWindow,
-                recvWindow,
-                streams.size(),
-                closed,
-                closeFrame);
+            getClass().getSimpleName(),
+            hashCode(),
+            getEndPoint().getLocalAddress(),
+            getEndPoint().getRemoteAddress(),
+            sendWindow,
+            recvWindow,
+            streams.size(),
+            closed,
+            closeFrame);
     }
 
     private class ControlEntry extends HTTP2Flusher.Entry
@@ -1241,7 +1219,7 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         }
 
         @Override
-        protected boolean generate(ByteBufferPool.Lease lease)
+        protected boolean generate(ByteBufferPool.Lease lease) throws HpackException
         {
             frameBytes = generator.control(lease, frame);
             beforeSend();
@@ -1487,7 +1465,7 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
         }
     }
 
-    private class DataCallback extends Callback.Nested implements Retainable
+    private class DataCallback extends Callback.Nested
     {
         private final IStream stream;
         private final int flowControlLength;
@@ -1497,14 +1475,6 @@ public abstract class HTTP2Session extends ContainerLifeCycle implements ISessio
             super(callback);
             this.stream = stream;
             this.flowControlLength = flowControlLength;
-        }
-
-        @Override
-        public void retain()
-        {
-            Callback callback = getCallback();
-            if (callback instanceof Retainable)
-                ((Retainable)callback).retain();
         }
 
         @Override

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -29,14 +29,17 @@ import org.eclipse.jetty.client.api.Connection;
 import org.eclipse.jetty.io.EndPoint;
 import org.eclipse.jetty.util.ProcessorUtils;
 import org.eclipse.jetty.util.Promise;
+import org.eclipse.jetty.util.annotation.ManagedAttribute;
 import org.eclipse.jetty.util.annotation.ManagedObject;
 
 @ManagedObject("The HTTP/1.1 client transport")
 public class HttpClientTransportOverHTTP extends AbstractConnectorHttpClientTransport
 {
+    private int headerCacheSize = 1024;
+
     public HttpClientTransportOverHTTP()
     {
-        this(Math.max( 1, ProcessorUtils.availableProcessors() / 2));
+        this(Math.max(1, ProcessorUtils.availableProcessors() / 2));
     }
 
     public HttpClientTransportOverHTTP(int selectors)
@@ -66,5 +69,16 @@ public class HttpClientTransportOverHTTP extends AbstractConnectorHttpClientTran
     protected HttpConnectionOverHTTP newHttpConnection(EndPoint endPoint, HttpDestination destination, Promise<Connection> promise)
     {
         return new HttpConnectionOverHTTP(endPoint, destination, promise);
+    }
+
+    @ManagedAttribute("The maximum allowed size in bytes for an HTTP header field cache")
+    public int getHeaderCacheSize()
+    {
+        return headerCacheSize;
+    }
+
+    public void setHeaderCacheSize(int headerCacheSize)
+    {
+        this.headerCacheSize = headerCacheSize;
     }
 }

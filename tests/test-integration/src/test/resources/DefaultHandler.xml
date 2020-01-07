@@ -1,13 +1,6 @@
-<?xml version="1.0"?>
-<!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "http://www.eclipse.org/jetty/configure_9_3.dtd">
+<?xml version="1.0"?><!DOCTYPE Configure PUBLIC "-//Jetty//Configure//EN" "http://www.eclipse.org/jetty/configure_9_3.dtd">
 
-<!-- =============================================================== -->
-<!-- Configure the Jetty Server                                      -->
-<!--                                                                 -->
-<!-- Documentation of this file format can be found at:              -->
-<!-- http://docs.codehaus.org/display/JETTY/jetty.xml                -->
-<!--                                                                 -->
-<!-- =============================================================== -->
+<!-- =============================================================== --><!-- Configure the Jetty Server                                      --><!--                                                                 --><!-- Documentation of this file format can be found at:              --><!-- http://docs.codehaus.org/display/JETTY/jetty.xml                --><!--                                                                 --><!-- =============================================================== -->
 
 
 <Configure id="Server" class="org.eclipse.jetty.server.Server">
@@ -20,7 +13,7 @@
       <Set name="responseHeaderSize">8192</Set>
       <Set name="sendServerVersion">true</Set>
       <Set name="sendDateHeader">false</Set>
-      <Set name="headerCacheSize">4096</Set>
+      <Set name="headerCacheSize">1024</Set>
 
       <!-- Uncomment to enable handling of X-Forwarded- style headers
       <Call name="addCustomizer">

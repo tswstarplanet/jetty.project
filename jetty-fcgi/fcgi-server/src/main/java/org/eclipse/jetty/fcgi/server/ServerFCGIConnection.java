@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -105,10 +105,20 @@ public class ServerFCGIConnection extends AbstractConnection
         }
     }
 
+    @Override
+    protected boolean onReadTimeout(Throwable timeout)
+    {
+        return channels.values().stream()
+            .mapToInt(channel -> channel.onIdleTimeout(timeout) ? 0 : 1)
+            .sum() == 0;
+    }
+
     private void parse(ByteBuffer buffer)
     {
         while (buffer.hasRemaining())
+        {
             parser.parse(buffer);
+        }
     }
 
     private void shutdown()
@@ -123,7 +133,7 @@ public class ServerFCGIConnection extends AbstractConnection
         {
             // TODO: handle flags
             HttpChannelOverFCGI channel = new HttpChannelOverFCGI(connector, configuration, getEndPoint(),
-                    new HttpTransportOverFCGI(connector.getByteBufferPool(), flusher, request, sendStatus200));
+                new HttpTransportOverFCGI(connector.getByteBufferPool(), flusher, request, sendStatus200));
             HttpChannelOverFCGI existing = channels.putIfAbsent(request, channel);
             if (existing != null)
                 throw new IllegalStateException();
@@ -142,7 +152,7 @@ public class ServerFCGIConnection extends AbstractConnection
         }
 
         @Override
-        public void onHeaders(int request)
+        public boolean onHeaders(int request)
         {
             HttpChannelOverFCGI channel = channels.get(request);
             if (LOG.isDebugEnabled())
@@ -152,6 +162,7 @@ public class ServerFCGIConnection extends AbstractConnection
                 channel.onRequest();
                 channel.dispatch();
             }
+            return false;
         }
 
         @Override

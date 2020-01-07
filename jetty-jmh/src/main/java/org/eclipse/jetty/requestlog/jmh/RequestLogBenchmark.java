@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -43,8 +43,6 @@ import static java.lang.invoke.MethodHandles.dropArguments;
 import static java.lang.invoke.MethodHandles.foldArguments;
 import static java.lang.invoke.MethodType.methodType;
 
-
-
 @State(Scope.Benchmark)
 @Threads(4)
 @Warmup(iterations = 7, time = 500, timeUnit = TimeUnit.MILLISECONDS)
@@ -73,7 +71,7 @@ public class RequestLogBenchmark
         {
             TypeUtil.toHex(request.hashCode(), b);
         }
-        catch(Exception e)
+        catch (Exception e)
         {
             throw new RuntimeException(e);
         }
@@ -89,10 +87,11 @@ public class RequestLogBenchmark
         {
             MethodType logType = methodType(Void.TYPE, StringBuilder.class, String.class);
 
-            MethodHandle append = MethodHandles.lookup().findStatic(RequestLogBenchmark.class, "append", methodType(Void.TYPE, String.class, StringBuilder.class));
-            MethodHandle logURI = MethodHandles.lookup().findStatic(RequestLogBenchmark.class, "logURI", logType);
-            MethodHandle logAddr = MethodHandles.lookup().findStatic(RequestLogBenchmark.class, "logAddr", logType);
-            MethodHandle logLength = MethodHandles.lookup().findStatic(RequestLogBenchmark.class, "logLength", logType);
+            MethodHandles.Lookup lookup = MethodHandles.lookup();
+            MethodHandle append = lookup.findStatic(RequestLogBenchmark.class, "append", methodType(Void.TYPE, String.class, StringBuilder.class));
+            MethodHandle logURI = lookup.findStatic(RequestLogBenchmark.class, "logURI", logType);
+            MethodHandle logAddr = lookup.findStatic(RequestLogBenchmark.class, "logAddr", logType);
+            MethodHandle logLength = lookup.findStatic(RequestLogBenchmark.class, "logLength", logType);
 
             // setup iteration
             iteratedLog = new Object[]
@@ -112,7 +111,6 @@ public class RequestLogBenchmark
             logHandle = foldArguments(logHandle, logAddr);
             logHandle = foldArguments(logHandle, dropArguments(append.bindTo(" - "), 1, String.class));
             logHandle = foldArguments(logHandle, logURI);
-
         }
         catch (Throwable th)
         {
@@ -120,16 +118,15 @@ public class RequestLogBenchmark
         }
     }
 
-
     public String logFixed(String request)
     {
         StringBuilder b = buffers.get();
-        logURI(b,request);
-        append(" - ",b);
-        logAddr(b,request);
-        append(" ",b);
-        logLength(b,request);
-        append("\n",b);
+        logURI(b, request);
+        append(" - ", b);
+        logAddr(b, request);
+        append(" ", b);
+        logLength(b, request);
+        append("\n", b);
         String l = b.toString();
         b.setLength(0);
         return l;
@@ -152,7 +149,7 @@ public class RequestLogBenchmark
             b.setLength(0);
             return l;
         }
-        catch(Throwable th)
+        catch (Throwable th)
         {
             throw new RuntimeException(th);
         }
@@ -174,28 +171,26 @@ public class RequestLogBenchmark
         }
     }
 
-
     @Benchmark
-    @BenchmarkMode({ Mode.Throughput})
+    @BenchmarkMode({Mode.Throughput})
     public String testFixed()
     {
         return logFixed(Long.toString(ThreadLocalRandom.current().nextLong()));
-    };
+    }
 
     @Benchmark
-    @BenchmarkMode({ Mode.Throughput})
+    @BenchmarkMode({Mode.Throughput})
     public String testIterate()
     {
         return logIterate(Long.toString(ThreadLocalRandom.current().nextLong()));
-    };
+    }
 
     @Benchmark
-    @BenchmarkMode({ Mode.Throughput})
+    @BenchmarkMode({Mode.Throughput})
     public String testHandle()
     {
         return logMethodHandle(Long.toString(ThreadLocalRandom.current().nextLong()));
     }
-
 
     public static void main(String[] args) throws RunnerException
     {
@@ -210,5 +205,4 @@ public class RequestLogBenchmark
 
         new Runner(opt).run();
     }
-
 }

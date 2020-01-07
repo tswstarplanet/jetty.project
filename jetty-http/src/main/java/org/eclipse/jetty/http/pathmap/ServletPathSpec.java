@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -20,24 +20,28 @@ package org.eclipse.jetty.http.pathmap;
 
 import org.eclipse.jetty.util.StringUtil;
 import org.eclipse.jetty.util.URIUtil;
+import org.eclipse.jetty.util.log.Log;
+import org.eclipse.jetty.util.log.Logger;
 
 public class ServletPathSpec extends PathSpec
 {
+
+    private static final Logger LOG = Log.getLogger(ServletPathSpec.class);
+
     /**
      * If a servlet or filter path mapping isn't a suffix mapping, ensure
      * it starts with '/'
-     * 
+     *
      * @param pathSpec the servlet or filter mapping pattern
      * @return the pathSpec prefixed by '/' if appropriate
      */
     public static String normalize(String pathSpec)
     {
-        if (StringUtil.isNotBlank(pathSpec) && !pathSpec.startsWith("/") && !pathSpec.startsWith("*")) 
+        if (StringUtil.isNotBlank(pathSpec) && !pathSpec.startsWith("/") && !pathSpec.startsWith("*"))
             return "/" + pathSpec;
         return pathSpec;
     }
-    
-    
+
     public ServletPathSpec(String servletPathSpec)
     {
         if (servletPathSpec == null)
@@ -47,7 +51,7 @@ public class ServletPathSpec extends PathSpec
         assertValidServletPathSpec(servletPathSpec);
 
         // The Root Path Spec
-        if (servletPathSpec.length() == 0)
+        if (servletPathSpec.isEmpty())
         {
             super.pathSpec = "";
             super.pathDepth = -1; // force this to be at the end of the sort order
@@ -57,7 +61,7 @@ public class ServletPathSpec extends PathSpec
         }
 
         // The Default Path Spec
-        if("/".equals(servletPathSpec))
+        if ("/".equals(servletPathSpec))
         {
             super.pathSpec = "/";
             super.pathDepth = -1; // force this to be at the end of the sort order
@@ -65,26 +69,31 @@ public class ServletPathSpec extends PathSpec
             this.group = PathSpecGroup.DEFAULT;
             return;
         }
-        
+
         this.specLength = servletPathSpec.length();
         super.pathDepth = 0;
         char lastChar = servletPathSpec.charAt(specLength - 1);
         // prefix based
-        if ((servletPathSpec.charAt(0) == '/') && (specLength > 1) && (lastChar == '*'))
+        if (servletPathSpec.charAt(0) == '/' && servletPathSpec.endsWith("/*"))
         {
             this.group = PathSpecGroup.PREFIX_GLOB;
-            this.prefix = servletPathSpec.substring(0,specLength-2);
+            this.prefix = servletPathSpec.substring(0, specLength - 2);
         }
         // suffix based
-        else if (servletPathSpec.charAt(0) == '*')
+        else if (servletPathSpec.charAt(0) == '*' && servletPathSpec.length() > 1)
         {
             this.group = PathSpecGroup.SUFFIX_GLOB;
-            this.suffix = servletPathSpec.substring(2,specLength);
+            this.suffix = servletPathSpec.substring(2, specLength);
         }
         else
         {
             this.group = PathSpecGroup.EXACT;
             this.prefix = servletPathSpec;
+            if (servletPathSpec.endsWith("*"))
+            {
+                LOG.warn("Suspicious URL pattern: '{}'; see sections 12.1 and 12.2 of the Servlet specification",
+                        servletPathSpec);
+            }
         }
 
         for (int i = 0; i < specLength; i++)
@@ -129,12 +138,7 @@ public class ServletPathSpec extends PathSpec
             // only allowed to have '*' at the end of the path spec
             if (idx != (len - 1))
             {
-                throw new IllegalArgumentException("Servlet Spec 12.2 violation: glob '*' can only exist at end of prefix based matches: bad spec \""+ servletPathSpec +"\"");
-            }
-            
-            if (idx<1 || servletPathSpec.charAt(idx-1)!='/')
-            {
-                throw new IllegalArgumentException("Servlet Spec 12.2 violation: suffix glob '*' can only exist after '/': bad spec \""+ servletPathSpec +"\"");
+                throw new IllegalArgumentException("Servlet Spec 12.2 violation: glob '*' can only exist at end of prefix based matches: bad spec \"" + servletPathSpec + "\"");
             }
         }
         else if (servletPathSpec.startsWith("*."))
@@ -144,19 +148,19 @@ public class ServletPathSpec extends PathSpec
             // cannot have path separator
             if (idx >= 0)
             {
-                throw new IllegalArgumentException("Servlet Spec 12.2 violation: suffix based path spec cannot have path separators: bad spec \""+ servletPathSpec +"\"");
+                throw new IllegalArgumentException("Servlet Spec 12.2 violation: suffix based path spec cannot have path separators: bad spec \"" + servletPathSpec + "\"");
             }
 
-            idx = servletPathSpec.indexOf('*',2);
+            idx = servletPathSpec.indexOf('*', 2);
             // only allowed to have 1 glob '*', at the start of the path spec
             if (idx >= 1)
             {
-                throw new IllegalArgumentException("Servlet Spec 12.2 violation: suffix based path spec cannot have multiple glob '*': bad spec \""+ servletPathSpec +"\"");
+                throw new IllegalArgumentException("Servlet Spec 12.2 violation: suffix based path spec cannot have multiple glob '*': bad spec \"" + servletPathSpec + "\"");
             }
         }
         else
         {
-            throw new IllegalArgumentException("Servlet Spec 12.2 violation: path spec must start with \"/\" or \"*.\": bad spec \""+ servletPathSpec +"\"");
+            throw new IllegalArgumentException("Servlet Spec 12.2 violation: path spec must start with \"/\" or \"*.\": bad spec \"" + servletPathSpec + "\"");
         }
     }
 
@@ -193,14 +197,14 @@ public class ServletPathSpec extends PathSpec
             case PREFIX_GLOB:
                 if (isWildcardMatch(path))
                 {
-                    return path.substring(0,specLength - 2);
+                    return path.substring(0, specLength - 2);
                 }
                 else
                 {
                     return null;
                 }
             case SUFFIX_GLOB:
-                if (path.regionMatches(path.length() - (specLength - 1),pathSpec,1,specLength - 1))
+                if (path.regionMatches(path.length() - (specLength - 1), pathSpec, 1, specLength - 1))
                 {
                     return path;
                 }
@@ -254,12 +258,9 @@ public class ServletPathSpec extends PathSpec
     {
         // For a spec of "/foo/*" match "/foo" , "/foo/..." but not "/foobar"
         int cpl = specLength - 2;
-        if ((group == PathSpecGroup.PREFIX_GLOB) && (path.regionMatches(0,pathSpec,0,cpl)))
+        if ((group == PathSpecGroup.PREFIX_GLOB) && (path.regionMatches(0, pathSpec, 0, cpl)))
         {
-            if ((path.length() == cpl) || ('/' == path.charAt(cpl)))
-            {
-                return true;
-            }
+            return (path.length() == cpl) || ('/' == path.charAt(cpl));
         }
         return false;
     }
@@ -274,7 +275,7 @@ public class ServletPathSpec extends PathSpec
             case PREFIX_GLOB:
                 return isWildcardMatch(path);
             case SUFFIX_GLOB:
-                return path.regionMatches((path.length() - specLength) + 1,pathSpec,1,specLength - 1);
+                return path.regionMatches((path.length() - specLength) + 1, pathSpec, 1, specLength - 1);
             case ROOT:
                 // Only "/" matches
                 return ("/".equals(path));

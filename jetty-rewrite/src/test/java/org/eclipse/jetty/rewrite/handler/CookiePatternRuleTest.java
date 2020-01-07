@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,6 +18,14 @@
 
 package org.eclipse.jetty.rewrite.handler;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringReader;
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
 import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpTester;
@@ -29,25 +37,16 @@ import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.eclipse.jetty.server.handler.HandlerList;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
-import javax.servlet.ServletException;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.StringReader;
-
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.*;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.fail;
-
 
 public class CookiePatternRuleTest
 {
-
     private Server server;
     private LocalConnector localConnector;
 
@@ -149,7 +148,6 @@ public class CookiePatternRuleTest
     }
 
     @Test
-    @Disabled("See #2675 for details") // TODO: needs to be fixed in RuleContainer
     public void testUrlParameter() throws Exception
     {
         CookiePatternRule rule = new CookiePatternRule();
@@ -169,7 +167,6 @@ public class CookiePatternRuleTest
         HttpTester.Response response = HttpTester.parseResponse(rawResponse);
 
         String responseContent = response.getContent();
-        System.out.println(responseContent);
         assertResponseContentLine(responseContent, "baseRequest.requestUri=", "/other;fruit=apple");
 
         // verify

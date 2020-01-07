@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -16,71 +16,53 @@
 //  ========================================================================
 //
 
-
 package org.eclipse.jetty.server.session;
+
+import org.eclipse.jetty.util.log.Log;
+import org.eclipse.jetty.util.log.Logger;
 
 /**
  * NullSessionCacheFactory
  *
  * Factory for NullSessionCaches.
  */
-public class NullSessionCacheFactory implements SessionCacheFactory
-{    
-    boolean _saveOnCreate;
-    boolean _removeUnloadableSessions;
+public class NullSessionCacheFactory extends AbstractSessionCacheFactory
+{
+    private static final Logger LOG = Log.getLogger("org.eclipse.jetty.server.session");
     
-
-    /**
-     * @return the saveOnCreate
-     */
-    public boolean isSaveOnCreate()
+    @Override
+    public int getEvictionPolicy()
     {
-        return _saveOnCreate;
+        return SessionCache.EVICT_ON_SESSION_EXIT; //never actually stored
     }
 
-
-
-    /**
-     * @param saveOnCreate the saveOnCreate to set
-     */
-    public void setSaveOnCreate(boolean saveOnCreate)
+    @Override
+    public void setEvictionPolicy(int evictionPolicy)
     {
-        _saveOnCreate = saveOnCreate;
+        if (LOG.isDebugEnabled())
+            LOG.debug("Ignoring eviction policy setting for NullSessionCaches");
     }
 
-
-
-    /**
-     * @return the removeUnloadableSessions
-     */
-    public boolean isRemoveUnloadableSessions()
+    @Override
+    public boolean isSaveOnInactiveEvict()
     {
-        return _removeUnloadableSessions;
+        return false; //never kept in cache
     }
 
-
-
-    /**
-     * @param removeUnloadableSessions the removeUnloadableSessions to set
-     */
-    public void setRemoveUnloadableSessions(boolean removeUnloadableSessions)
+    @Override
+    public void setSaveOnInactiveEvict(boolean saveOnInactiveEvict)
     {
-        _removeUnloadableSessions = removeUnloadableSessions;
+        if (LOG.isDebugEnabled())
+            LOG.debug("Ignoring eviction policy setting for NullSessionCaches");
     }
 
-
-
-    /** 
-     * @see org.eclipse.jetty.server.session.SessionCacheFactory#getSessionCache(org.eclipse.jetty.server.session.SessionHandler)
-     */
     @Override
     public SessionCache getSessionCache(SessionHandler handler)
     {
         NullSessionCache cache = new NullSessionCache(handler);
         cache.setSaveOnCreate(isSaveOnCreate());
         cache.setRemoveUnloadableSessions(isRemoveUnloadableSessions());
+        cache.setFlushOnResponseCommit(isFlushOnResponseCommit());
         return cache;
-        
     }
-
 }

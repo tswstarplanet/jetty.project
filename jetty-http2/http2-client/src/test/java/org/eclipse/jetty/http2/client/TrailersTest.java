@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,16 +18,6 @@
 
 package org.eclipse.jetty.http2.client;
 
-import static org.hamcrest.Matchers.is;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.equalTo;
-
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -35,7 +25,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-
 import javax.servlet.ServletInputStream;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -46,6 +35,7 @@ import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.http.MetaData;
+import org.eclipse.jetty.http2.HTTP2Session;
 import org.eclipse.jetty.http2.api.Session;
 import org.eclipse.jetty.http2.api.Stream;
 import org.eclipse.jetty.http2.api.server.ServerSessionListener;
@@ -58,10 +48,14 @@ import org.eclipse.jetty.server.Response;
 import org.eclipse.jetty.util.Callback;
 import org.eclipse.jetty.util.FuturePromise;
 import org.eclipse.jetty.util.Promise;
-
 import org.eclipse.jetty.util.StringUtil;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class TrailersTest extends AbstractTest
 {
@@ -289,7 +283,7 @@ public class TrailersTest extends AbstractTest
 
         assertTrue(latch.await(5, TimeUnit.SECONDS));
 
-        assertTrue( frames.size()==3, frames.toString());
+        assertEquals(3, frames.size(), frames.toString());
 
         HeadersFrame headers = (HeadersFrame)frames.get(0);
         DataFrame data = (DataFrame)frames.get(1);
@@ -298,11 +292,38 @@ public class TrailersTest extends AbstractTest
         assertFalse(headers.isEndStream());
         assertFalse(data.isEndStream());
         assertTrue(trailers.isEndStream());
-        assertTrue(trailers.getMetaData().getFields().get(trailerName).equals(trailerValue));
+        assertEquals(trailers.getMetaData().getFields().get(trailerName), trailerValue);
     }
 
     @Test
-    public void testRequestTrailerInvalidHpack() throws Exception
+    public void testRequestTrailerInvalidHpackSent() throws Exception
+    {
+        start(new EmptyHttpServlet());
+
+        Session session = newClient(new Session.Listener.Adapter());
+        MetaData.Request request = newRequest("POST", new HttpFields());
+        HeadersFrame requestFrame = new HeadersFrame(request, null, false);
+        FuturePromise<Stream> promise = new FuturePromise<>();
+        session.newStream(requestFrame, promise, new Stream.Listener.Adapter());
+        Stream stream = promise.get(5, TimeUnit.SECONDS);
+        ByteBuffer data = ByteBuffer.wrap(StringUtil.getUtf8Bytes("hello"));
+        Callback.Completable completable = new Callback.Completable();
+        stream.data(new DataFrame(stream.getId(), data, false), completable);
+        CountDownLatch failureLatch = new CountDownLatch(1);
+        completable.thenRun(() ->
+        {
+            // Invalid trailer: cannot contain pseudo headers.
+            HttpFields trailerFields = new HttpFields();
+            trailerFields.put(HttpHeader.C_METHOD, "GET");
+            MetaData trailer = new MetaData(HttpVersion.HTTP_2, trailerFields);
+            HeadersFrame trailerFrame = new HeadersFrame(stream.getId(), trailer, null, true);
+            stream.headers(trailerFrame, Callback.from(Callback.NOOP::succeeded, x -> failureLatch.countDown()));
+        });
+        assertTrue(failureLatch.await(5, TimeUnit.SECONDS));
+    }
+
+    @Test
+    public void testRequestTrailerInvalidHpackReceived() throws Exception
     {
         CountDownLatch serverLatch = new CountDownLatch(1);
         start(new HttpServlet()
@@ -343,11 +364,13 @@ public class TrailersTest extends AbstractTest
             }
         });
         Stream stream = promise.get(5, TimeUnit.SECONDS);
-        ByteBuffer data = ByteBuffer.wrap( StringUtil.getUtf8Bytes( "hello"));
+        ByteBuffer data = ByteBuffer.wrap(StringUtil.getUtf8Bytes("hello"));
         Callback.Completable completable = new Callback.Completable();
         stream.data(new DataFrame(stream.getId(), data, false), completable);
         completable.thenRun(() ->
         {
+            // Disable checks for invalid headers.
+            ((HTTP2Session)session).getGenerator().setValidateHpackEncoding(false);
             // Invalid trailer: cannot contain pseudo headers.
             HttpFields trailerFields = new HttpFields();
             trailerFields.put(HttpHeader.C_METHOD, "GET");
@@ -358,6 +381,5 @@ public class TrailersTest extends AbstractTest
 
         assertTrue(serverLatch.await(5, TimeUnit.SECONDS));
         assertTrue(clientLatch.await(5, TimeUnit.SECONDS));
-
     }
 }

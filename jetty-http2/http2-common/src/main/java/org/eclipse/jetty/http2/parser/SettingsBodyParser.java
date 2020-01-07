@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -19,6 +19,7 @@
 package org.eclipse.jetty.http2.parser;
 
 import java.nio.ByteBuffer;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -72,11 +73,21 @@ public class SettingsBodyParser extends BodyParser
     @Override
     protected void emptyBody(ByteBuffer buffer)
     {
-        onSettings(buffer, new HashMap<>());
+        boolean isReply = hasFlag(Flags.ACK);
+        SettingsFrame frame = new SettingsFrame(Collections.emptyMap(), isReply);
+        if (!isReply && !rateControlOnEvent(frame))
+            connectionFailure(buffer, ErrorCode.ENHANCE_YOUR_CALM_ERROR.code, "invalid_settings_frame_rate");
+        else
+            onSettings(frame);
     }
 
     @Override
     public boolean parse(ByteBuffer buffer)
+    {
+        return parse(buffer, getStreamId(), getBodyLength());
+    }
+
+    private boolean parse(ByteBuffer buffer, int streamId, int bodyLength)
     {
         while (buffer.hasRemaining())
         {
@@ -85,9 +96,9 @@ public class SettingsBodyParser extends BodyParser
                 case PREPARE:
                 {
                     // SPEC: wrong streamId is treated as connection error.
-                    if (getStreamId() != 0)
+                    if (streamId != 0)
                         return connectionFailure(buffer, ErrorCode.PROTOCOL_ERROR.code, "invalid_settings_frame");
-                    length = getBodyLength();
+                    length = bodyLength;
                     settings = new HashMap<>();
                     state = State.SETTING_ID;
                     break;
@@ -130,7 +141,7 @@ public class SettingsBodyParser extends BodyParser
                     {
                         settingValue = buffer.getInt();
                         if (LOG.isDebugEnabled())
-                            LOG.debug(String.format("setting %d=%d",settingId, settingValue));
+                            LOG.debug(String.format("setting %d=%d", settingId, settingValue));
                         if (!onSetting(buffer, settings, settingId, settingValue))
                             return false;
                         state = State.SETTING_ID;
@@ -157,7 +168,7 @@ public class SettingsBodyParser extends BodyParser
                     if (cursor == 0)
                     {
                         if (LOG.isDebugEnabled())
-                            LOG.debug(String.format("setting %d=%d",settingId, settingValue));
+                            LOG.debug(String.format("setting %d=%d", settingId, settingValue));
                         if (!onSetting(buffer, settings, settingId, settingValue))
                             return false;
                         state = State.SETTING_ID;
@@ -200,47 +211,44 @@ public class SettingsBodyParser extends BodyParser
             return connectionFailure(buffer, ErrorCode.PROTOCOL_ERROR.code, "invalid_settings_max_frame_size");
 
         SettingsFrame frame = new SettingsFrame(settings, hasFlag(Flags.ACK));
+        return onSettings(frame);
+    }
+
+    private boolean onSettings(SettingsFrame frame)
+    {
         reset();
         notifySettings(frame);
         return true;
     }
 
+    /**
+     * <p>Parses the given buffer containing the whole body of a {@code SETTINGS} frame
+     * (without header bytes), typically from the {@code HTTP2-Settings} header.</p>
+     *
+     * @param buffer the buffer containing the body of {@code SETTINGS} frame
+     * @return the {@code SETTINGS} frame from the parsed body bytes
+     */
     public static SettingsFrame parseBody(final ByteBuffer buffer)
     {
-        final int bodyLength = buffer.remaining();
-        final AtomicReference<SettingsFrame> frameRef = new AtomicReference<>();
-        SettingsBodyParser parser = new SettingsBodyParser(null, null)
+        AtomicReference<SettingsFrame> frameRef = new AtomicReference<>();
+        SettingsBodyParser parser = new SettingsBodyParser(new HeaderParser(RateControl.NO_RATE_CONTROL), new Parser.Listener.Adapter()
         {
             @Override
-            protected int getStreamId()
+            public void onSettings(SettingsFrame frame)
             {
-                return 0;
+                frameRef.set(frame);
             }
 
             @Override
-            protected int getBodyLength()
-            {
-                return bodyLength;
-            }
-
-            @Override
-            protected boolean onSettings(ByteBuffer buffer, Map<Integer, Integer> settings)
-            {
-                frameRef.set(new SettingsFrame(settings, false));
-                return true;
-            }
-
-            @Override
-            protected boolean connectionFailure(ByteBuffer buffer, int error, String reason)
+            public void onConnectionFailure(int error, String reason)
             {
                 frameRef.set(null);
-                return false;
             }
-        };
-        if (bodyLength == 0)
-            parser.emptyBody(buffer);
+        });
+        if (buffer.hasRemaining())
+            parser.parse(buffer, 0, buffer.remaining());
         else
-            parser.parse(buffer);
+            parser.emptyBody(buffer);
         return frameRef.get();
     }
 

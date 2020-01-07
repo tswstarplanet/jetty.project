@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -16,7 +16,6 @@
 //  ========================================================================
 //
 
-
 package org.eclipse.jetty.gcloud.session;
 
 import org.eclipse.jetty.server.session.AbstractClusteredSessionScavengingTest;
@@ -26,8 +25,6 @@ import org.junit.jupiter.api.BeforeAll;
 
 /**
  * ClusteredSessionScavengingTest
- *
- *
  */
 public class ClusteredSessionScavengingTest extends AbstractClusteredSessionScavengingTest
 {
@@ -35,21 +32,20 @@ public class ClusteredSessionScavengingTest extends AbstractClusteredSessionScav
     public static GCloudSessionTestSupport __testSupport;
 
     @BeforeAll
-    public static void setUp () throws Exception
+    public static void setUp() throws Exception
     {
         __testSupport = new GCloudSessionTestSupport();
         __testSupport.setUp();
     }
 
     @AfterAll
-    public static void tearDown () throws Exception
+    public static void tearDown() throws Exception
     {
         __testSupport.deleteSessions();
         __testSupport.tearDown();
     }
-    
 
-    /** 
+    /**
      * @see org.eclipse.jetty.server.session.AbstractTestBase#createSessionDataStoreFactory()
      */
     @Override
@@ -57,6 +53,4 @@ public class ClusteredSessionScavengingTest extends AbstractClusteredSessionScav
     {
         return GCloudSessionTestSupport.newSessionDataStoreFactory(__testSupport.getDatastore());
     }
-
-   
 }

@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -213,7 +213,7 @@ public class ConnectionStatistics extends AbstractLifeCycle implements Connectio
     @Override
     public void dump(Appendable out, String indent) throws IOException
     {
-        Dumpable.dumpObjects(out,indent,this,
+        Dumpable.dumpObjects(out, indent, this,
             String.format("connections=%s", _connections),
             String.format("durations=%s", _connectionsDuration),
             String.format("bytes in/out=%s/%s", getReceivedBytes(), getSentBytes()),

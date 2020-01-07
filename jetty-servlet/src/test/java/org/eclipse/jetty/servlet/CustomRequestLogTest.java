@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,10 +18,10 @@
 
 package org.eclipse.jetty.servlet;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
-
 import javax.servlet.ServletException;
 import javax.servlet.ServletOutputStream;
 import javax.servlet.http.HttpServlet;
@@ -47,14 +47,15 @@ public class CustomRequestLogTest
     Server _server;
     LocalConnector _connector;
     BlockingQueue<String> _entries = new BlockingArrayQueue<>();
-    String _tmpDir = System.getProperty("java.io.tmpdir");
+    String _tmpDir;
 
     @BeforeEach
-    public void before()
+    public void before() throws Exception
     {
         _server = new Server();
         _connector = new LocalConnector(_server);
         _server.addConnector(_connector);
+        _tmpDir = new File(System.getProperty("java.io.tmpdir")).getCanonicalPath();
     }
 
     void testHandlerServerStart(String formatString) throws Exception
@@ -83,10 +84,10 @@ public class CustomRequestLogTest
         testHandlerServerStart("Filename: %f");
 
         _connector.getResponse("GET /context/servlet/info HTTP/1.0\n\n");
-        String log = _entries.poll(5,TimeUnit.SECONDS);
-        assertThat(log, is("Filename: " + _tmpDir + "/servlet/info"));
+        String log = _entries.poll(5, TimeUnit.SECONDS);
+        String expected = new File(_tmpDir + File.separator + "servlet" + File.separator + "info").getCanonicalPath();
+        assertThat(log, is("Filename: " + expected));
     }
-
 
     @Test
     public void testLogRequestHandler() throws Exception
@@ -94,10 +95,9 @@ public class CustomRequestLogTest
         testHandlerServerStart("RequestHandler: %R");
 
         _connector.getResponse("GET /context/servlet/ HTTP/1.0\n\n");
-        String log = _entries.poll(5,TimeUnit.SECONDS);
+        String log = _entries.poll(5, TimeUnit.SECONDS);
         assertThat(log, Matchers.containsString("TestServlet"));
     }
-
 
     class TestRequestLogWriter implements RequestLog.Writer
     {
@@ -108,7 +108,7 @@ public class CustomRequestLogTest
             {
                 _entries.add(requestEntry);
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 e.printStackTrace();
             }

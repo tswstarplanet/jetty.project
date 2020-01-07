@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -81,14 +81,24 @@ public class RetainableByteBuffer implements Retainable
         return ref;
     }
 
+    public int remaining()
+    {
+        return buffer.remaining();
+    }
+
     public boolean hasRemaining()
     {
-        return buffer.hasRemaining();
+        return remaining() > 0;
     }
 
     public boolean isEmpty()
     {
-        return !buffer.hasRemaining();
+        return !hasRemaining();
+    }
+
+    public void clear()
+    {
+        BufferUtil.clear(buffer);
     }
 
     @Override

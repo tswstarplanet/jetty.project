@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -34,13 +34,14 @@ import org.eclipse.jetty.http.HttpStatus;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.io.ByteBufferPool;
 import org.eclipse.jetty.io.EndPoint;
+import org.eclipse.jetty.io.RetainableByteBuffer;
 import org.eclipse.jetty.util.BufferUtil;
-import org.eclipse.jetty.util.CompletableCallback;
+import org.eclipse.jetty.util.Callback;
 
 public class HttpReceiverOverHTTP extends HttpReceiver implements HttpParser.ResponseHandler
 {
     private final HttpParser parser;
-    private ByteBuffer buffer;
+    private RetainableByteBuffer networkBuffer;
     private boolean shutdown;
     private boolean complete;
 
@@ -63,41 +64,66 @@ public class HttpReceiverOverHTTP extends HttpReceiver implements HttpParser.Res
 
     protected ByteBuffer getResponseBuffer()
     {
-        return buffer;
+        return networkBuffer == null ? null : networkBuffer.getBuffer();
     }
 
+    @Override
     public void receive()
     {
-        if (buffer == null)
-            acquireBuffer();
+        if (networkBuffer == null)
+            acquireNetworkBuffer();
         process();
     }
 
-    private void acquireBuffer()
+    private void acquireNetworkBuffer()
     {
-        HttpClient client = getHttpDestination().getHttpClient();
-        ByteBufferPool bufferPool = client.getByteBufferPool();
-        buffer = bufferPool.acquire(client.getResponseBufferSize(), true);
+        networkBuffer = newNetworkBuffer();
+        if (LOG.isDebugEnabled())
+            LOG.debug("Acquired {}", networkBuffer);
     }
 
-    private void releaseBuffer()
+    private void reacquireNetworkBuffer()
     {
-        if (buffer == null)
+        RetainableByteBuffer currentBuffer = networkBuffer;
+        if (currentBuffer == null)
             throw new IllegalStateException();
-        if (BufferUtil.hasContent(buffer))
+
+        if (currentBuffer.hasRemaining())
             throw new IllegalStateException();
+
+        currentBuffer.release();
+        networkBuffer = newNetworkBuffer();
+        if (LOG.isDebugEnabled())
+            LOG.debug("Reacquired {} <- {}", currentBuffer, networkBuffer);
+    }
+
+    private RetainableByteBuffer newNetworkBuffer()
+    {
         HttpClient client = getHttpDestination().getHttpClient();
         ByteBufferPool bufferPool = client.getByteBufferPool();
-        bufferPool.release(buffer);
-        buffer = null;
+        return new RetainableByteBuffer(bufferPool, client.getResponseBufferSize(), true);
+    }
+
+    private void releaseNetworkBuffer()
+    {
+        if (networkBuffer == null)
+            throw new IllegalStateException();
+        if (networkBuffer.hasRemaining())
+            throw new IllegalStateException();
+        networkBuffer.release();
+        if (LOG.isDebugEnabled())
+            LOG.debug("Released {}", networkBuffer);
+        networkBuffer = null;
     }
 
     protected ByteBuffer onUpgradeFrom()
     {
-        if (BufferUtil.hasContent(buffer))
+        if (networkBuffer.hasRemaining())
         {
-            ByteBuffer upgradeBuffer = ByteBuffer.allocate(buffer.remaining());
-            upgradeBuffer.put(buffer).flip();
+            ByteBuffer upgradeBuffer = BufferUtil.allocate(networkBuffer.remaining());
+            BufferUtil.clearToFill(upgradeBuffer);
+            BufferUtil.put(networkBuffer.getBuffer(), upgradeBuffer);
+            BufferUtil.flipToFlush(upgradeBuffer, 0);
             return upgradeBuffer;
         }
         return null;
@@ -111,39 +137,42 @@ public class HttpReceiverOverHTTP extends HttpReceiver implements HttpParser.Res
             EndPoint endPoint = connection.getEndPoint();
             while (true)
             {
-                boolean upgraded = connection != endPoint.getConnection();
+                // Always parse even empty buffers to advance the parser.
+                boolean stopProcessing = parse();
 
                 // Connection may be closed or upgraded in a parser callback.
+                boolean upgraded = connection != endPoint.getConnection();
                 if (connection.isClosed() || upgraded)
                 {
                     if (LOG.isDebugEnabled())
                         LOG.debug("{} {}", connection, upgraded ? "upgraded" : "closed");
-                    releaseBuffer();
+                    releaseNetworkBuffer();
                     return;
                 }
 
-                if (parse())
+                if (stopProcessing)
                     return;
 
-                int read = endPoint.fill(buffer);
+                if (networkBuffer.getReferences() > 1)
+                    reacquireNetworkBuffer();
+
+                int read = endPoint.fill(networkBuffer.getBuffer());
                 if (LOG.isDebugEnabled())
-                    LOG.debug("Read {} bytes {} from {}", read, BufferUtil.toDetailString(buffer), endPoint);
+                    LOG.debug("Read {} bytes in {} from {}", read, networkBuffer, endPoint);
 
                 if (read > 0)
                 {
                     connection.addBytesIn(read);
-                    if (parse())
-                        return;
                 }
                 else if (read == 0)
                 {
-                    releaseBuffer();
+                    releaseNetworkBuffer();
                     fillInterested();
                     return;
                 }
                 else
                 {
-                    releaseBuffer();
+                    releaseNetworkBuffer();
                     shutdown();
                     return;
                 }
@@ -153,15 +182,14 @@ public class HttpReceiverOverHTTP extends HttpReceiver implements HttpParser.Res
         {
             if (LOG.isDebugEnabled())
                 LOG.debug(x);
-            BufferUtil.clear(buffer);
-            if (buffer != null)
-                releaseBuffer();
+            networkBuffer.clear();
+            releaseNetworkBuffer();
             failAndClose(x);
         }
     }
 
     /**
-     * Parses a HTTP response in the receivers buffer.
+     * Parses an HTTP response in the receivers buffer.
      *
      * @return true to indicate that parsing should be interrupted (and will be resumed by another thread).
      */
@@ -169,20 +197,20 @@ public class HttpReceiverOverHTTP extends HttpReceiver implements HttpParser.Res
     {
         while (true)
         {
-            boolean handle = parser.parseNext(buffer);
+            boolean handle = parser.parseNext(networkBuffer.getBuffer());
             boolean complete = this.complete;
             this.complete = false;
             if (LOG.isDebugEnabled())
-                LOG.debug("Parsed {}, remaining {} {}", handle, buffer.remaining(), parser);
+                LOG.debug("Parsed {}, remaining {} {}", handle, networkBuffer.remaining(), parser);
             if (handle)
                 return true;
-            if (!buffer.hasRemaining())
+            if (networkBuffer.isEmpty())
                 return false;
             if (complete)
             {
                 if (LOG.isDebugEnabled())
-                    LOG.debug("Discarding unexpected content after response: {}", BufferUtil.toDetailString(buffer));
-                BufferUtil.clear(buffer);
+                    LOG.debug("Discarding unexpected content after response: {}", networkBuffer);
+                networkBuffer.clear();
                 return false;
             }
         }
@@ -217,8 +245,8 @@ public class HttpReceiverOverHTTP extends HttpReceiver implements HttpParser.Res
     @Override
     public int getHeaderCacheSize()
     {
-        // TODO get from configuration
-        return 4096;
+        HttpClientTransportOverHTTP transport = (HttpClientTransportOverHTTP)getHttpDestination().getHttpClient().getTransport();
+        return transport.getHeaderCacheSize();
     }
 
     @Override
@@ -230,7 +258,7 @@ public class HttpReceiverOverHTTP extends HttpReceiver implements HttpParser.Res
 
         String method = exchange.getRequest().getMethod();
         parser.setHeadResponse(HttpMethod.HEAD.is(method) ||
-                (HttpMethod.CONNECT.is(method) && status == HttpStatus.OK_200));
+            (HttpMethod.CONNECT.is(method) && status == HttpStatus.OK_200));
         exchange.getResponse().version(version).status(status).reason(reason);
 
         return !responseBegin(exchange);
@@ -263,26 +291,8 @@ public class HttpReceiverOverHTTP extends HttpReceiver implements HttpParser.Res
         if (exchange == null)
             return false;
 
-        CompletableCallback callback = new CompletableCallback()
-        {
-            @Override
-            public void resume()
-            {
-                if (LOG.isDebugEnabled())
-                    LOG.debug("Content consumed asynchronously, resuming processing");
-                process();
-            }
-
-            @Override
-            public void abort(Throwable x)
-            {
-                failAndClose(x);
-            }
-        };
-        // Do not short circuit these calls.
-        boolean proceed = responseContent(exchange, buffer, callback);
-        boolean async = callback.tryComplete();
-        return !proceed || async;
+        networkBuffer.retain();
+        return !responseContent(exchange, buffer, Callback.from(networkBuffer::release, this::failAndClose));
     }
 
     @Override
@@ -320,11 +330,8 @@ public class HttpReceiverOverHTTP extends HttpReceiver implements HttpParser.Res
         if (status == HttpStatus.SWITCHING_PROTOCOLS_101)
             return true;
 
-        if (HttpMethod.CONNECT.is(exchange.getRequest().getMethod()) &&
-                status == HttpStatus.OK_200)
-            return true;
-
-        return false;
+        return HttpMethod.CONNECT.is(exchange.getRequest().getMethod()) &&
+            status == HttpStatus.OK_200;
     }
 
     @Override

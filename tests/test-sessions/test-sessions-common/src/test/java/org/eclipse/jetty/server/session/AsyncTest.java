@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -16,16 +16,12 @@
 //  ========================================================================
 //
 
-
 package org.eclipse.jetty.server.session;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.lang.reflect.Proxy;
-
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import javax.servlet.AsyncContext;
 import javax.servlet.ServletException;
 import javax.servlet.ServletOutputStream;
@@ -43,7 +39,9 @@ import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.StacklessLogging;
 import org.junit.jupiter.api.Test;
 
-
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * AsyncTest
@@ -52,15 +50,6 @@ import org.junit.jupiter.api.Test;
  */
 public class AsyncTest
 {
-    public static class LatchServlet extends HttpServlet
-    {
-        @Override
-        protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException
-        {
-            resp.getWriter().println("Latched");
-        }
-    }
-
     @Test
     public void testSessionWithAsyncDispatch() throws Exception
     {
@@ -75,12 +64,11 @@ public class AsyncTest
         String mapping = "/server";
 
         ServletContextHandler contextHandler = server.addContext(contextPath);
+        TestHttpChannelCompleteListener scopeListener = new TestHttpChannelCompleteListener();
+        server.getServerConnector().addBean(scopeListener);
         TestServlet servlet = new TestServlet();
         ServletHolder holder = new ServletHolder(servlet);
         contextHandler.addServlet(holder, mapping);
-        LatchServlet latchServlet = new LatchServlet();
-        ServletHolder latchHolder = new ServletHolder(latchServlet);
-        contextHandler.addServlet(latchHolder, "/latch");
 
         server.start();
         int port = server.getPort();
@@ -89,19 +77,20 @@ public class AsyncTest
         {
             HttpClient client = new HttpClient();
             client.start();
-            String url = "http://localhost:" + port + contextPath + mapping+"?action=async";
+            String url = "http://localhost:" + port + contextPath + mapping + "?action=async";
 
             //make a request to set up a session on the server
+            CountDownLatch synchronizer = new CountDownLatch(1);
+            scopeListener.setExitSynchronizer(synchronizer);
             ContentResponse response = client.GET(url);
-            assertEquals(HttpServletResponse.SC_OK,response.getStatus());
+            assertEquals(HttpServletResponse.SC_OK, response.getStatus());
 
             String sessionCookie = response.getHeaders().get("Set-Cookie");
             assertTrue(sessionCookie != null);
-
-            //make another request, when this is handled, the first request is definitely finished being handled
-            response = client.GET("http://localhost:" + port + contextPath + "/latch");
-            assertEquals(HttpServletResponse.SC_OK,response.getStatus());
-
+       
+            //ensure request has finished being handled
+            synchronizer.await(5, TimeUnit.SECONDS);
+            
             //session should now be evicted from the cache after request exited
             String id = TestServer.extractSessionId(sessionCookie);
             assertFalse(contextHandler.getSessionHandler().getSessionCache().contains(id));
@@ -127,12 +116,11 @@ public class AsyncTest
         String mapping = "/server";
 
         ServletContextHandler contextHandler = server.addContext(contextPath);
+        TestHttpChannelCompleteListener scopeListener = new TestHttpChannelCompleteListener();
+        server.getServerConnector().addBean(scopeListener);
         TestServlet servlet = new TestServlet();
         ServletHolder holder = new ServletHolder(servlet);
         contextHandler.addServlet(holder, mapping);
-        LatchServlet latchServlet = new LatchServlet();
-        ServletHolder latchHolder = new ServletHolder(latchServlet);
-        contextHandler.addServlet(latchHolder, "/latch");
 
         server.start();
         int port = server.getPort();
@@ -141,21 +129,22 @@ public class AsyncTest
         {
             HttpClient client = new HttpClient();
             client.start();
-            String url = "http://localhost:" + port + contextPath + mapping+"?action=asyncComplete";
+            String url = "http://localhost:" + port + contextPath + mapping + "?action=asyncComplete";
 
             //make a request to set up a session on the server
+            CountDownLatch synchronizer = new CountDownLatch(1);
+            scopeListener.setExitSynchronizer(synchronizer);
             ContentResponse response = client.GET(url);
-            assertEquals(HttpServletResponse.SC_OK,response.getStatus());
+            assertEquals(HttpServletResponse.SC_OK, response.getStatus());
 
             String sessionCookie = response.getHeaders().get("Set-Cookie");
             assertTrue(sessionCookie != null);
+            String id = TestServer.extractSessionId(sessionCookie);
 
-            //make another request, when this is handled, the first request is definitely finished being handled
-            response = client.GET("http://localhost:" + port + contextPath + "/latch");
-            assertEquals(HttpServletResponse.SC_OK,response.getStatus());
+            //ensure request has finished being handled
+            synchronizer.await(5, TimeUnit.SECONDS);
 
             //session should now be evicted from the cache after request exited
-            String id = TestServer.extractSessionId(sessionCookie);
             assertFalse(contextHandler.getSessionHandler().getSessionCache().contains(id));
             assertTrue(contextHandler.getSessionHandler().getSessionCache().getSessionDataStore().exists(id));
         }
@@ -177,6 +166,8 @@ public class AsyncTest
         TestServer server = new TestServer(0, -1, -1, cacheFactory, storeFactory);
 
         ServletContextHandler contextA = server.addContext("/ctxA");
+        TestHttpChannelCompleteListener scopeListener = new TestHttpChannelCompleteListener();
+        server.getServerConnector().addBean(scopeListener); //just pick one of the contexts to register the listener
         CrossContextServlet ccServlet = new CrossContextServlet();
         ServletHolder ccHolder = new ServletHolder(ccServlet);
         contextA.addServlet(ccHolder, "/*");
@@ -185,9 +176,6 @@ public class AsyncTest
         TestServlet testServlet = new TestServlet();
         ServletHolder testHolder = new ServletHolder(testServlet);
         contextB.addServlet(testHolder, "/*");
-        LatchServlet latchServlet = new LatchServlet();
-        ServletHolder latchHolder = new ServletHolder(latchServlet);
-        contextB.addServlet(latchHolder, "/latch");
 
 
         server.start();
@@ -200,15 +188,16 @@ public class AsyncTest
             String url = "http://localhost:" + port + "/ctxA/test?action=async";
 
             //make a request to set up a session on the server
+            CountDownLatch synchronizer = new CountDownLatch(1);
+            scopeListener.setExitSynchronizer(synchronizer);
             ContentResponse response = client.GET(url);
-            assertEquals(HttpServletResponse.SC_OK,response.getStatus());
+            assertEquals(HttpServletResponse.SC_OK, response.getStatus());
 
             String sessionCookie = response.getHeaders().get("Set-Cookie");
             assertTrue(sessionCookie != null);
 
-            //make another request, when this is handled, the first request is definitely finished being handled
-            response = client.GET("http://localhost:" + port + "/ctxB/latch");
-            assertEquals(HttpServletResponse.SC_OK,response.getStatus());
+            //ensure request has finished being handled
+            synchronizer.await(5, TimeUnit.SECONDS);
 
             //session should now be evicted from the cache after request exited
             String id = TestServer.extractSessionId(sessionCookie);
@@ -219,6 +208,59 @@ public class AsyncTest
         {
             server.stop();
         }
+    }
+
+    @Test
+    public void testSessionCreatedBeforeDispatch() throws Exception
+    {
+
+        DefaultSessionCacheFactory cacheFactory = new DefaultSessionCacheFactory();
+        cacheFactory.setEvictionPolicy(SessionCache.EVICT_ON_SESSION_EXIT);
+        SessionDataStoreFactory storeFactory = new TestSessionDataStoreFactory();
+        TestServer server = new TestServer(0, -1, -1, cacheFactory, storeFactory);
+
+        String contextPath = "";
+        String mapping = "/server";
+
+        ServletContextHandler contextHandler = server.addContext(contextPath);
+        TestHttpChannelCompleteListener scopeListener = new TestHttpChannelCompleteListener();
+        server.getServerConnector().addBean(scopeListener);
+
+        TestServlet servlet = new TestServlet();
+        ServletHolder holder = new ServletHolder(servlet);
+        contextHandler.addServlet(holder, mapping);
+
+
+        server.start();
+        int port = server.getPort();
+
+        try (StacklessLogging stackless = new StacklessLogging(Log.getLogger("org.eclipse.jetty.server.session")))
+        {
+            HttpClient client = new HttpClient();
+            client.start();
+            String url = "http://localhost:" + port + contextPath + mapping + "?action=asyncWithSession";
+
+            //make a request to set up a session on the server
+            CountDownLatch synchronizer = new CountDownLatch(1);
+            scopeListener.setExitSynchronizer(synchronizer);
+            ContentResponse response = client.GET(url);
+            assertEquals(HttpServletResponse.SC_OK, response.getStatus());
+
+            String sessionCookie = response.getHeaders().get("Set-Cookie");
+            assertTrue(sessionCookie != null);
+            String id = TestServer.extractSessionId(sessionCookie);
+            
+            //ensure request has finished being handled
+            synchronizer.await(5, TimeUnit.SECONDS);
+
+            //session should now be evicted from the cache after request exited
+            assertFalse(contextHandler.getSessionHandler().getSessionCache().contains(id));
+            assertTrue(contextHandler.getSessionHandler().getSessionCache().getSessionDataStore().exists(id));
+        }
+        finally
+        {
+            server.stop();
+        }   
     }
 
     @Test
@@ -234,6 +276,8 @@ public class AsyncTest
         TestServer server = new TestServer(0, -1, -1, cacheFactory, storeFactory);
 
         ServletContextHandler contextA = server.addContext("/ctxA");
+        TestHttpChannelCompleteListener scopeListener = new TestHttpChannelCompleteListener();
+        server.getServerConnector().addBean(scopeListener);
         CrossContextServlet ccServlet = new CrossContextServlet();
         ServletHolder ccHolder = new ServletHolder(ccServlet);
         contextA.addServlet(ccHolder, "/*");
@@ -242,29 +286,28 @@ public class AsyncTest
         TestServlet testServlet = new TestServlet();
         ServletHolder testHolder = new ServletHolder(testServlet);
         contextB.addServlet(testHolder, "/*");
-        LatchServlet latchServlet = new LatchServlet();
-        ServletHolder latchHolder = new ServletHolder(latchServlet);
-        contextB.addServlet(latchHolder, "/latch");
 
         server.start();
         int port = server.getPort();
-
+        HttpClient client = new HttpClient();
+        
         try (StacklessLogging stackless = new StacklessLogging(Log.getLogger("org.eclipse.jetty.server.session")))
         {
-            HttpClient client = new HttpClient();
+            
             client.start();
             String url = "http://localhost:" + port + "/ctxA/test?action=asyncComplete";
 
             //make a request to set up a session on the server
+            CountDownLatch synchronizer = new CountDownLatch(1);
+            scopeListener.setExitSynchronizer(synchronizer);
             ContentResponse response = client.GET(url);
-            assertEquals(HttpServletResponse.SC_OK,response.getStatus());
+            assertEquals(HttpServletResponse.SC_OK, response.getStatus());
 
             String sessionCookie = response.getHeaders().get("Set-Cookie");
+            
             assertTrue(sessionCookie != null);
-
-            //make another request, when this is handled, the first request is definitely finished being handled
-            response = client.GET("http://localhost:" + port + "/ctxB/latch");
-            assertEquals(HttpServletResponse.SC_OK,response.getStatus());
+            //ensure request has finished being handled
+            synchronizer.await(5, TimeUnit.SECONDS);
 
             //session should now be evicted from the cache A after request exited
             String id = TestServer.extractSessionId(sessionCookie);
@@ -273,6 +316,7 @@ public class AsyncTest
         }
         finally
         {
+            client.stop();
             server.stop();
         }
     }
@@ -291,7 +335,7 @@ public class AsyncTest
                 testFoo.setInt(33);
                 FooInvocationHandler handler = new FooInvocationHandler(testFoo);
                 Foo foo = (Foo)Proxy
-                    .newProxyInstance(Thread.currentThread().getContextClassLoader(), new Class[] {Foo.class}, handler);
+                    .newProxyInstance(Thread.currentThread().getContextClassLoader(), new Class[]{Foo.class}, handler);
                 session.setAttribute("foo", foo);
             }
             else if ("test".equals(action))
@@ -318,6 +362,22 @@ public class AsyncTest
                     response.getWriter().println("OK");
                 }
             }
+            else if ("asyncWithSession".equals(action))
+            {
+                if (request.getAttribute("asyncWithSession") == null)
+                {
+                    request.setAttribute("asyncWithSession", Boolean.TRUE);
+                    AsyncContext acontext = request.startAsync();
+                    HttpSession session = request.getSession(true);
+                    acontext.dispatch();
+                    return;
+                }
+                else
+                {
+                    response.getWriter().println("OK");
+                }
+
+            }
             else if ("asyncComplete".equals(action))
             {
                 AsyncContext acontext = request.startAsync();
@@ -329,7 +389,7 @@ public class AsyncTest
                     {
                         if (out.isReady())
                         {
-                            request.getSession(true);
+                            HttpSession s = request.getSession(true);
                             out.print("OK\n");
                             acontext.complete();
                         }
@@ -352,7 +412,7 @@ public class AsyncTest
         {
             AsyncContext acontext = request.startAsync();
 
-            acontext.dispatch(request.getServletContext().getContext("/ctxB"),"/test");
+            acontext.dispatch(request.getServletContext().getContext("/ctxB"), "/test");
         }
     }
 }

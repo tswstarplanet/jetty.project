@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -22,7 +22,6 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.time.Duration;
 import java.time.Instant;
-
 import javax.servlet.ServletRequest;
 import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
@@ -37,6 +36,7 @@ import org.eclipse.jetty.security.SpnegoUserPrincipal;
 import org.eclipse.jetty.security.UserAuthentication;
 import org.eclipse.jetty.server.Authentication;
 import org.eclipse.jetty.server.Authentication.User;
+import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.UserIdentity;
 import org.eclipse.jetty.util.log.Log;
 import org.eclipse.jetty.util.log.Logger;
@@ -97,6 +97,22 @@ public class ConfigurableSpnegoAuthenticator extends LoginAuthenticator
     public void setAuthenticationDuration(Duration authenticationDuration)
     {
         _authenticationDuration = authenticationDuration;
+    }
+
+    /**
+     * Only renew the session id if the user has been fully authenticated, don't
+     * renew the session for any of the intermediate request/response handshakes.
+     */
+    @Override
+    public UserIdentity login(String username, Object password, ServletRequest servletRequest)
+    {
+        SpnegoUserIdentity user = (SpnegoUserIdentity)_loginService.login(username, password, servletRequest);
+        if (user != null && user.isEstablished())
+        {
+            Request request = Request.getBaseRequest(servletRequest);
+            renewSession(request, request == null ? null : request.getResponse());
+        }
+        return user;
     }
 
     @Override
@@ -221,8 +237,8 @@ public class ConfigurableSpnegoAuthenticator extends LoginAuthenticator
     {
         private static final String ATTRIBUTE = UserIdentityHolder.class.getName();
 
-        private transient final Instant _validFrom = Instant.now();
-        private transient final UserIdentity _userIdentity;
+        private final transient Instant _validFrom = Instant.now();
+        private final transient UserIdentity _userIdentity;
 
         private UserIdentityHolder(UserIdentity userIdentity)
         {

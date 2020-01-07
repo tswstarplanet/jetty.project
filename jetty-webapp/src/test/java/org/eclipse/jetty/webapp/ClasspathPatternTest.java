@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,15 +18,15 @@
 
 package org.eclipse.jetty.webapp;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import java.net.URI;
-import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.function.Supplier;
 
+import org.eclipse.jetty.util.IncludeExcludeSet;
 import org.eclipse.jetty.util.TypeUtil;
+import org.eclipse.jetty.webapp.ClasspathPattern.ByLocationOrModule;
+import org.eclipse.jetty.webapp.ClasspathPattern.ByPackageOrName;
+import org.eclipse.jetty.webapp.ClasspathPattern.Entry;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,9 +34,21 @@ import org.junit.jupiter.api.condition.DisabledOnJre;
 import org.junit.jupiter.api.condition.EnabledOnJre;
 import org.junit.jupiter.api.condition.JRE;
 
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 public class ClasspathPatternTest
 {
     private final ClasspathPattern _pattern = new ClasspathPattern();
+    
+    protected static Supplier<URI> NULL_SUPPLIER = new Supplier<URI>()
+    {
+        public URI get()
+        {
+            return null;
+        } 
+    };
 
     @BeforeEach
     public void before()
@@ -47,18 +59,18 @@ public class ClasspathPatternTest
         _pattern.add("org.example.FooBar");
         _pattern.add("-org.example.Excluded");
         _pattern.addAll(Arrays.asList(
-                "-org.example.Nested$Minus",
-                "org.example.Nested",
-                "org.example.Nested$Something"));
+            "-org.example.Nested$Minus",
+            "org.example.Nested",
+            "org.example.Nested$Something"));
 
         assertThat(_pattern, Matchers.containsInAnyOrder(
-                "org.package.",
-                "-org.excluded.",
-                "org.example.FooBar",
-                "-org.example.Excluded",
-                "-org.example.Nested$Minus",
-                "org.example.Nested",
-                "org.example.Nested$Something"
+            "org.package.",
+            "-org.excluded.",
+            "org.example.FooBar",
+            "-org.example.Excluded",
+            "-org.example.Nested$Minus",
+            "org.example.Nested",
+            "org.example.Nested$Something"
         ));
     }
 
@@ -122,15 +134,12 @@ public class ClasspathPatternTest
     {
         // jar from JVM classloader
         URI loc_string = TypeUtil.getLocationOfClass(String.class);
-        // System.err.println(loc_string);
 
         // a jar from maven repo jar
         URI loc_junit = TypeUtil.getLocationOfClass(Test.class);
-        // System.err.println(loc_junit);
 
         // class file 
         URI loc_test = TypeUtil.getLocationOfClass(ClasspathPatternTest.class);
-        // System.err.println(loc_test);
 
         ClasspathPattern pattern = new ClasspathPattern();
         pattern.include("something");
@@ -139,7 +148,7 @@ public class ClasspathPatternTest
         assertThat(pattern.match(ClasspathPatternTest.class), Matchers.is(false));
 
         // Add directory for both JVM classes
-        pattern.include(Paths.get(loc_string).getParent().toUri().toString());
+        pattern.include(loc_string.toASCIIString());
 
         // Add jar for individual class and classes directory
         pattern.include(loc_junit.toString(), loc_test.toString());
@@ -220,7 +229,7 @@ public class ClasspathPatternTest
         assertThat(pattern.match(ClasspathPatternTest.class), Matchers.is(true));
 
         // Add directory for both JVM classes
-        pattern.exclude(Paths.get(loc_string).getParent().toUri().toString());
+        pattern.exclude(loc_string.toString());
 
         // Add jar for individual class and classes directory
         pattern.exclude(loc_junit.toString(), loc_test.toString());
@@ -266,6 +275,44 @@ public class ClasspathPatternTest
         assertThat(pattern.match(Test.class), Matchers.is(false));
         assertThat(pattern.match(ClasspathPatternTest.class), Matchers.is(false));
     }
+    
+    @Test
+    public void testWithNullLocation() throws Exception
+    {
+        ClasspathPattern pattern = new ClasspathPattern();
+        
+        IncludeExcludeSet<Entry, String> names = new IncludeExcludeSet<>(ByPackageOrName.class);
+        IncludeExcludeSet<Entry, URI> locations = new IncludeExcludeSet<>(ByLocationOrModule.class);
+
+        //Test no name or location includes or excludes - should match
+        assertThat(ClasspathPattern.combine(names, "a.b.c", locations, NULL_SUPPLIER), Matchers.is(true));
+        
+        names.include(pattern.newEntry("a.b.", true));
+        names.exclude(pattern.newEntry("d.e.", false));
+       
+        //Test explicit include by name no locations - should match
+        assertThat(ClasspathPattern.combine(names, "a.b.c", locations, NULL_SUPPLIER), Matchers.is(true));
+        
+        //Test explicit exclude by name no locations - should not match
+        assertThat(ClasspathPattern.combine(names, "d.e.f", locations, NULL_SUPPLIER), Matchers.is(false));
+        
+        //Test include by name with location includes - should match
+        locations.include(pattern.newEntry("file:/foo/bar", true));
+        assertThat(ClasspathPattern.combine(names, "a.b.c", locations, NULL_SUPPLIER), Matchers.is(true));
+        
+        //Test include by name but with location exclusions - should not match
+        locations.clear();
+        locations.exclude(pattern.newEntry("file:/high/low", false));
+        assertThat(ClasspathPattern.combine(names, "a.b.c", locations, NULL_SUPPLIER), Matchers.is(false));
+        
+        //Test neither included or excluded by name, but with location exclusions - should not match
+        assertThat(ClasspathPattern.combine(names, "g.b.r", locations, NULL_SUPPLIER), Matchers.is(false));
+        
+        //Test neither included nor excluded by name, but with location inclusions - should not match
+        locations.clear();
+        locations.include(pattern.newEntry("file:/foo/bar", true));
+        assertThat(ClasspathPattern.combine(names, "g.b.r", locations, NULL_SUPPLIER), Matchers.is(false));
+    }
 
     @Test
     public void testLarge()
@@ -281,7 +328,6 @@ public class ClasspathPatternTest
             assertTrue(pattern.match("n" + i + "." + Integer.toHexString(100 + i) + ".Name"));
         }
     }
-
 
     @Test
     public void testJvmModule()

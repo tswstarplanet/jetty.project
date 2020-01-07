@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -34,7 +34,9 @@ import org.eclipse.jetty.http2.api.server.ServerSessionListener;
 import org.eclipse.jetty.http2.frames.Frame;
 import org.eclipse.jetty.http2.frames.SettingsFrame;
 import org.eclipse.jetty.http2.generator.Generator;
+import org.eclipse.jetty.http2.parser.RateControl;
 import org.eclipse.jetty.http2.parser.ServerParser;
+import org.eclipse.jetty.http2.parser.WindowRateControl;
 import org.eclipse.jetty.io.Connection;
 import org.eclipse.jetty.io.EndPoint;
 import org.eclipse.jetty.server.AbstractConnectionFactory;
@@ -58,20 +60,23 @@ public abstract class AbstractHTTP2ServerConnectionFactory extends AbstractConne
     private int maxHeaderBlockFragment = 0;
     private int maxFrameLength = Frame.DEFAULT_MAX_LENGTH;
     private int maxSettingsKeys = SettingsFrame.DEFAULT_MAX_KEYS;
+    private RateControl.Factory rateControlFactory = new WindowRateControl.Factory(20);
     private FlowControlStrategy.Factory flowControlStrategyFactory = () -> new BufferingFlowControlStrategy(0.5F);
     private long streamIdleTimeout;
 
     public AbstractHTTP2ServerConnectionFactory(@Name("config") HttpConfiguration httpConfiguration)
     {
-        this(httpConfiguration,"h2");
+        this(httpConfiguration, "h2");
     }
 
     protected AbstractHTTP2ServerConnectionFactory(@Name("config") HttpConfiguration httpConfiguration, @Name("protocols") String... protocols)
     {
         super(protocols);
-        for (String p:protocols)
+        for (String p : protocols)
+        {
             if (!HTTP2ServerConnection.isSupportedProtocol(p))
-                throw new IllegalArgumentException("Unsupported HTTP2 Protocol variant: "+p);
+                throw new IllegalArgumentException("Unsupported HTTP2 Protocol variant: " + p);
+        }
         addBean(sessionContainer);
         this.httpConfiguration = Objects.requireNonNull(httpConfiguration);
         addBean(httpConfiguration);
@@ -177,6 +182,49 @@ public abstract class AbstractHTTP2ServerConnectionFactory extends AbstractConne
     }
 
     /**
+     * @return null
+     * @deprecated use {@link #getRateControlFactory()} instead
+     */
+    @Deprecated
+    public RateControl getRateControl()
+    {
+        return null;
+    }
+
+    /**
+     * @param rateControl ignored, unless {@code rateControl} it is precisely a WindowRateControl
+     * (not a subclass) object in which case it is used as a prototype in a WindowRateControl.Factory.
+     * @throws UnsupportedOperationException when invoked, unless precisely a WindowRateControl object
+     * @deprecated use {@link #setRateControlFactory(RateControl.Factory)} instead
+     */
+    @Deprecated
+    public void setRateControl(RateControl rateControl)
+    {
+        if (rateControl.getClass() == WindowRateControl.class)
+            setRateControlFactory(new WindowRateControl.Factory(((WindowRateControl)rateControl).getEventsPerSecond()));
+        else
+            throw new UnsupportedOperationException();
+    }
+
+    /**
+     * @return the factory that creates RateControl objects
+     */
+    public RateControl.Factory getRateControlFactory()
+    {
+        return rateControlFactory;
+    }
+
+    /**
+     * <p>Sets the factory that creates a per-connection RateControl object.</p>
+     *
+     * @param rateControlFactory the factory that creates RateControl objects
+     */
+    public void setRateControlFactory(RateControl.Factory rateControlFactory)
+    {
+        this.rateControlFactory = Objects.requireNonNull(rateControlFactory);
+    }
+
+    /**
      * @return -1
      * @deprecated feature removed, no replacement
      */
@@ -188,8 +236,8 @@ public abstract class AbstractHTTP2ServerConnectionFactory extends AbstractConne
 
     /**
      * @param threads ignored
-     * @deprecated feature removed, no replacement
      * @throws UnsupportedOperationException when invoked
+     * @deprecated feature removed, no replacement
      */
     @Deprecated
     public void setReservedThreads(int threads)
@@ -235,21 +283,21 @@ public abstract class AbstractHTTP2ServerConnectionFactory extends AbstractConne
         session.setInitialSessionRecvWindow(getInitialSessionRecvWindow());
         session.setWriteThreshold(getHttpConfiguration().getOutputBufferSize());
 
-        ServerParser parser = newServerParser(connector, session);
+        ServerParser parser = newServerParser(connector, session, getRateControlFactory().newRateControl(endPoint));
         parser.setMaxFrameLength(getMaxFrameLength());
         parser.setMaxSettingsKeys(getMaxSettingsKeys());
 
         HTTP2Connection connection = new HTTP2ServerConnection(connector.getByteBufferPool(), connector.getExecutor(),
-                        endPoint, httpConfiguration, parser, session, getInputBufferSize(), listener);
+            endPoint, httpConfiguration, parser, session, getInputBufferSize(), listener);
         connection.addListener(sessionContainer);
         return configure(connection, connector, endPoint);
     }
 
     protected abstract ServerSessionListener newSessionListener(Connector connector, EndPoint endPoint);
 
-    protected ServerParser newServerParser(Connector connector, ServerParser.Listener listener)
+    protected ServerParser newServerParser(Connector connector, ServerParser.Listener listener, RateControl rateControl)
     {
-        return new ServerParser(connector.getByteBufferPool(), listener, getMaxDynamicTableSize(), getHttpConfiguration().getRequestHeaderSize());
+        return new ServerParser(connector.getByteBufferPool(), listener, getMaxDynamicTableSize(), getHttpConfiguration().getRequestHeaderSize(), rateControl);
     }
 
     @ManagedObject("The container of HTTP/2 sessions")
@@ -293,7 +341,7 @@ public abstract class AbstractHTTP2ServerConnectionFactory extends AbstractConne
         @Override
         public void dump(Appendable out, String indent) throws IOException
         {
-            Dumpable.dumpObjects(out,indent,this, sessions);
+            Dumpable.dumpObjects(out, indent, this, sessions);
         }
 
         @Override

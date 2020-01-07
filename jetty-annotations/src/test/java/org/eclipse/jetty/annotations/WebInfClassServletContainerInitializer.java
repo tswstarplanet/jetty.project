@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -16,32 +16,28 @@
 //  ========================================================================
 //
 
-
 package org.eclipse.jetty.annotations;
 
 import java.util.Set;
-
 import javax.servlet.ServletContainerInitializer;
 import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
 
 /**
  * ServerServletContainerInitializer
- *
- *
  */
 public class WebInfClassServletContainerInitializer implements ServletContainerInitializer
 {
 
     /**
-     * 
+     *
      */
     public WebInfClassServletContainerInitializer()
     {
         // TODO Auto-generated constructor stub
     }
 
-    /** 
+    /**
      * @see javax.servlet.ServletContainerInitializer#onStartup(java.util.Set, javax.servlet.ServletContext)
      */
     @Override
@@ -50,5 +46,4 @@ public class WebInfClassServletContainerInitializer implements ServletContainerI
         // TODO Auto-generated method stub
 
     }
-
 }

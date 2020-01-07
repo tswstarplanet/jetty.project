@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -44,10 +44,10 @@ import org.eclipse.jetty.util.thread.strategy.EatWhatYouKill;
 public class HTTP2Connection extends AbstractConnection implements WriteFlusher.Listener
 {
     protected static final Logger LOG = Log.getLogger(HTTP2Connection.class);
-    
+
     // TODO remove this once we are sure EWYK is OK for http2
     private static final boolean PEC_MODE = Boolean.getBoolean("org.eclipse.jetty.http2.PEC_MODE");
-    
+
     private final Queue<Runnable> tasks = new ArrayDeque<>();
     private final HTTP2Producer producer = new HTTP2Producer();
     private final AtomicLong bytesIn = new AtomicLong();
@@ -309,7 +309,7 @@ public class HTTP2Connection extends AbstractConnection implements WriteFlusher.
             if (currentBuffer == null)
                 throw new IllegalStateException();
 
-            if (currentBuffer.getBuffer().hasRemaining())
+            if (currentBuffer.hasRemaining())
                 throw new IllegalStateException();
 
             currentBuffer.release();
@@ -389,7 +389,7 @@ public class HTTP2Connection extends AbstractConnection implements WriteFlusher.
     {
         private NetworkBuffer()
         {
-            super(byteBufferPool,bufferSize,false);
+            super(byteBufferPool, bufferSize, false);
         }
 
         private void put(ByteBuffer source)

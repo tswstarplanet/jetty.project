@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -25,7 +25,6 @@ import java.security.PrivilegedAction;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
-
 import javax.security.auth.Subject;
 import javax.security.auth.login.AppConfigurationEntry;
 import javax.security.auth.login.Configuration;
@@ -52,7 +51,7 @@ import org.ietf.jgss.Oid;
  * of the {@link #getServiceName() service name} and the {@link #getHostName() host name},
  * for example {@code HTTP/wonder.com}, using a {@code keyTab} file as the service principal
  * credentials.</p>
- * <p>Upon receiving a HTTP request, the server tries to authenticate the client
+ * <p>Upon receiving an HTTP request, the server tries to authenticate the client
  * calling {@link #login(String, Object, ServletRequest)} where the GSS APIs are used to
  * verify client tokens and (perhaps after a few round-trips) a {@code GSSContext} is
  * established.</p>
@@ -321,7 +320,7 @@ public class ConfigurableSpnegoLoginService extends ContainerLifeCycle implement
     {
         public static final String ATTRIBUTE = GSSContextHolder.class.getName();
 
-        private transient final GSSContext gssContext;
+        private final transient GSSContext gssContext;
 
         private GSSContextHolder(GSSContext gssContext)
         {

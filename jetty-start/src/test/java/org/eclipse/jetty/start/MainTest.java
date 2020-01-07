@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -18,12 +18,6 @@
 
 package org.eclipse.jetty.start;
 
-import static org.hamcrest.Matchers.is;
-import static org.hamcrest.Matchers.not;
-import static org.hamcrest.Matchers.startsWith;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.hamcrest.MatcherAssert.assertThat;
-
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -36,13 +30,20 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.startsWith;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 public class MainTest
 {
     @BeforeEach
     public void clearSystemProperties()
     {
-        System.setProperty("jetty.home","");
-        System.setProperty("jetty.base","");
+        System.setProperty("jetty.home", "");
+        System.setProperty("jetty.base", "");
     }
 
     @Test
@@ -59,7 +60,7 @@ public class MainTest
         BaseHome baseHome = main.getBaseHome();
         // System.err.println(args);
 
-        ConfigurationAssert.assertConfiguration(baseHome,args,"assert-home.txt");
+        ConfigurationAssert.assertConfiguration(baseHome, args, "assert-home.txt");
 
         // System.err.println("StartArgs.props:");
         // args.getProperties().forEach(p->System.err.println(p));
@@ -68,12 +69,12 @@ public class MainTest
 
         Props props = args.getProperties();
 
-        assertThat("Props(jetty.home)", props.getString("jetty.home"),is(baseHome.getHome()));
-        assertThat("Props(jetty.home)", props.getString("jetty.home"),is(not(startsWith("file:"))));
-        assertThat("Props(jetty.home.uri)", props.getString("jetty.home.uri")+"/",is(baseHome.getHomePath().toUri().toString()));
-        assertThat("Props(jetty.base)", props.getString("jetty.base"),is(baseHome.getBase()));
-        assertThat("Props(jetty.base)", props.getString("jetty.base"),is(not(startsWith("file:"))));
-        assertThat("Props(jetty.base.uri)", props.getString("jetty.base.uri")+"/",is(baseHome.getBasePath().toUri().toString()));
+        assertThat("Props(jetty.home)", props.getString("jetty.home"), is(baseHome.getHome()));
+        assertThat("Props(jetty.home)", props.getString("jetty.home"), is(not(startsWith("file:"))));
+        assertThat("Props(jetty.home.uri)", props.getString("jetty.home.uri") + "/", is(baseHome.getHomePath().toUri().toString()));
+        assertThat("Props(jetty.base)", props.getString("jetty.base"), is(baseHome.getBase()));
+        assertThat("Props(jetty.base)", props.getString("jetty.base"), is(not(startsWith("file:"))));
+        assertThat("Props(jetty.base.uri)", props.getString("jetty.base.uri") + "/", is(baseHome.getBasePath().toUri().toString()));
 
         assertThat("System.getProperty(jetty.home)", System.getProperty("jetty.home"), is(baseHome.getHome()));
         assertThat("System.getProperty(jetty.home)", System.getProperty("jetty.home"), is(not(startsWith("file:"))));
@@ -141,16 +142,16 @@ public class MainTest
         // Arbitrary Libs
         Path extraJar = MavenTestingUtils.getTestResourceFile("extra-libs/example.jar").toPath().toRealPath();
         Path extraDir = MavenTestingUtils.getTestResourceDir("extra-resources").toPath().toRealPath();
-        
-        assertThat("Extra Jar exists: " + extraJar,Files.exists(extraJar),is(true));
-        assertThat("Extra Dir exists: " + extraDir,Files.exists(extraDir),is(true));
-        
+
+        assertThat("Extra Jar exists: " + extraJar, Files.exists(extraJar), is(true));
+        assertThat("Extra Dir exists: " + extraDir, Files.exists(extraDir), is(true));
+
         StringBuilder lib = new StringBuilder();
         lib.append("--lib=");
         lib.append(extraJar.toString());
         lib.append(File.pathSeparator);
         lib.append(extraDir.toString());
-        
+
         cmdLineArgs.add(lib.toString());
 
         // Arbitrary XMLs
@@ -163,12 +164,43 @@ public class MainTest
         StartArgs args = main.processCommandLine(cmdLineArgs.toArray(new String[cmdLineArgs.size()]));
         BaseHome baseHome = main.getBaseHome();
 
-        assertThat("jetty.home",baseHome.getHome(),is(homePath.toString()));
-        assertThat("jetty.base",baseHome.getBase(),is(homePath.toString()));
+        assertThat("jetty.home", baseHome.getHome(), is(homePath.toString()));
+        assertThat("jetty.base", baseHome.getBase(), is(homePath.toString()));
 
-        ConfigurationAssert.assertConfiguration(baseHome,args,"assert-home-with-jvm.txt");
+        ConfigurationAssert.assertConfiguration(baseHome, args, "assert-home-with-jvm.txt");
     }
-    
+
+    @Test
+    public void testJvmArgExpansion() throws Exception
+    {
+        List<String> cmdLineArgs = new ArrayList<>();
+
+        Path homePath = MavenTestingUtils.getTestResourceDir("dist-home").toPath().toRealPath();
+        cmdLineArgs.add("jetty.home=" + homePath.toString());
+        cmdLineArgs.add("user.dir=" + homePath.toString());
+
+        // JVM args
+        cmdLineArgs.add("--exec");
+        cmdLineArgs.add("-Xms1g");
+        cmdLineArgs.add("-Xmx4g");
+        cmdLineArgs.add("-Xloggc:${jetty.base}/logs/gc-${java.version}.log");
+
+        Main main = new Main();
+
+        StartArgs args = main.processCommandLine(cmdLineArgs.toArray(new String[cmdLineArgs.size()]));
+        BaseHome baseHome = main.getBaseHome();
+
+        assertThat("jetty.home", baseHome.getHome(), is(homePath.toString()));
+        assertThat("jetty.base", baseHome.getBase(), is(homePath.toString()));
+
+        CommandLineBuilder commandLineBuilder = args.getMainArgs(true);
+        String commandLine = commandLineBuilder.toString("\n");
+        String expectedExpansion = String.format("-Xloggc:%s/logs/gc-%s.log",
+            baseHome.getBase(), System.getProperty("java.version")
+        );
+        assertThat(commandLine, containsString(expectedExpansion));
+    }
+
     @Test
     public void testWithModules() throws Exception
     {
@@ -187,10 +219,10 @@ public class MainTest
         StartArgs args = main.processCommandLine(cmdLineArgs.toArray(new String[cmdLineArgs.size()]));
         BaseHome baseHome = main.getBaseHome();
 
-        assertThat("jetty.home",baseHome.getHome(),is(homePath.toString()));
-        assertThat("jetty.base",baseHome.getBase(),is(homePath.toString()));
+        assertThat("jetty.home", baseHome.getHome(), is(homePath.toString()));
+        assertThat("jetty.base", baseHome.getBase(), is(homePath.toString()));
 
-        ConfigurationAssert.assertConfiguration(baseHome,args,"assert-home-with-module.txt");
+        ConfigurationAssert.assertConfiguration(baseHome, args, "assert-home-with-module.txt");
     }
 
     @Test
@@ -198,7 +230,7 @@ public class MainTest
     {
         Path distPath = MavenTestingUtils.getTestResourceDir("dist-home").toPath().toRealPath();
         Path homePath = MavenTestingUtils.getTargetTestingPath().resolve("dist home with spaces");
-        IO.copy(distPath.toFile(),homePath.toFile());
+        IO.copy(distPath.toFile(), homePath.toFile());
         homePath.resolve("lib/a library.jar").toFile().createNewFile();
 
         List<String> cmdLineArgs = new ArrayList<>();
@@ -210,9 +242,9 @@ public class MainTest
         StartArgs args = main.processCommandLine(cmdLineArgs.toArray(new String[cmdLineArgs.size()]));
         BaseHome baseHome = main.getBaseHome();
 
-        assertThat("jetty.home",baseHome.getHome(),is(homePath.toString()));
-        assertThat("jetty.base",baseHome.getBase(),is(homePath.toString()));
+        assertThat("jetty.home", baseHome.getHome(), is(homePath.toString()));
+        assertThat("jetty.base", baseHome.getBase(), is(homePath.toString()));
 
-        ConfigurationAssert.assertConfiguration(baseHome,args,"assert-home-with-spaces.txt");
+        ConfigurationAssert.assertConfiguration(baseHome, args, "assert-home-with-spaces.txt");
     }
 }

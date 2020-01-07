@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -129,9 +129,9 @@ public class HttpChannelOverHTTP2 extends HttpChannel
     public String toString()
     {
         return String.format("%s[send=%s,recv=%s]",
-                super.toString(),
-                sender,
-                receiver);
+            super.toString(),
+            sender,
+            receiver);
     }
 
     private class ReleaseCallback implements Callback

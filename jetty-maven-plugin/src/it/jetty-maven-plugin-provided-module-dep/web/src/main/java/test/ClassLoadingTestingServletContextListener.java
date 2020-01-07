@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -16,7 +16,6 @@
 //  ========================================================================
 //
 
-
 package test;
 
 import javax.servlet.ServletContextEvent;
@@ -29,13 +28,13 @@ public class ClassLoadingTestingServletContextListener
 {
 
     @Override
-    public void contextInitialized( ServletContextEvent sce )
+    public void contextInitialized(ServletContextEvent sce)
     {
         try
         {
             Api api = new Api();
         }
-        catch ( java.lang.Exception exception )
+        catch (java.lang.Exception exception)
         {
             exception.printStackTrace();
         }
@@ -43,7 +42,7 @@ public class ClassLoadingTestingServletContextListener
     }
 
     @Override
-    public void contextDestroyed( ServletContextEvent sce )
+    public void contextDestroyed(ServletContextEvent sce)
     {
     }
 } 

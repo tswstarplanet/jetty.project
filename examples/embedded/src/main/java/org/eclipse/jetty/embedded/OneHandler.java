@@ -1,6 +1,6 @@
 //
 //  ========================================================================
-//  Copyright (c) 1995-2019 Mort Bay Consulting Pty. Ltd.
+//  Copyright (c) 1995-2020 Mort Bay Consulting Pty. Ltd.
 //  ------------------------------------------------------------------------
 //  All rights reserved. This program and the accompanying materials
 //  are made available under the terms of the Eclipse Public License v1.0
@@ -22,11 +22,17 @@ import org.eclipse.jetty.server.Server;
 
 public class OneHandler
 {
-    public static void main( String[] args ) throws Exception
+    public static Server createServer(int port)
     {
-        Server server = new Server(8080);
+        Server server = new Server(port);
         server.setHandler(new HelloHandler());
+        return server;
+    }
 
+    public static void main(String[] args) throws Exception
+    {
+        int port = ExampleUtil.getPort(args, "jetty.http.port", 8080);
+        Server server = createServer(port);
         server.start();
         server.join();
     }
